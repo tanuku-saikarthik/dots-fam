@@ -842,6 +842,13 @@ class Store:
             raise Conflict("This approval was already decided.")
         return self.approval(approval_id)
 
+    def reopen_approvals(self, batch_id: str) -> None:
+        """Undo decisions whose resume could not start, so the owner can decide again."""
+        self._run(
+            "UPDATE approvals SET status='pending', note=NULL, decided_at=NULL WHERE batch_id=?",
+            batch_id,
+        )
+
     def pending_approvals(self, thread_id: str | None = None) -> int:
         if thread_id:
             row = self._one(

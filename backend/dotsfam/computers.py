@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from .config import Settings
 from .context import DotContext
 from .db import Store
-from .reversibility import Snapshots, classify
+from .reversibility import Snapshots, classify, press_requirement
 
 log = logging.getLogger("dotsfam.computers")
 SERVICE = Path(__file__).with_name("computer_service.py")
@@ -223,8 +223,21 @@ class ComputerManager:
         self.settings = settings
         self.driver = driver
         self.snapshots = Snapshots()
-        self._master = settings.computer_token or secrets.token_urlsafe(32)
+        self._master = settings.computer_token or self._saved_secret(settings.data_dir)
         self._starting: dict[str, asyncio.Lock] = {}
+
+    @staticmethod
+    def _saved_secret(data_dir: Path) -> str:
+        """Per-install secret for computer tokens, kept so running containers survive restarts."""
+        path = data_dir / "computer.secret"
+        if path.exists():
+            return path.read_text().strip()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        secret = secrets.token_urlsafe(32)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            handle.write(secret)
+        return secret
 
     @classmethod
     def create(cls, store: Store, settings: Settings) -> ComputerManager:
@@ -360,19 +373,24 @@ class ComputerManager:
         def log(text: str) -> None:
             self.store.add_event(f"computer:{dot['id']}", "computer", text, ctx.run_id)
 
-        def gate(action: str):
-            def check(args: dict[str, Any]) -> str | None:
-                try:
-                    return classify(snapshots, dot["id"], action, args)
-                except ValueError:
-                    return None  # the tool itself refuses stale refs before acting
+        def judge(action: str, args: dict[str, Any]) -> str | None:
+            try:
+                return classify(snapshots, dot["id"], action, args)
+            except ValueError:
+                # When in doubt, ask: an element missing from the latest snapshot can't be judged.
+                return "acts on an element Dots Fam could not check against its latest snapshot"
 
-            return check
+        def gate(action: str):
+            return lambda args: judge(action, args)
+
+        def expect(element: dict[str, Any]) -> dict[str, str]:
+            return {"role": str(element.get("role", "")), "name": str(element.get("name", ""))}
 
         async def open_url(url: str) -> dict:
             ctx.check()
             self._require(dot, "browser")
             result = await self.call(dot, "POST", "/browser/navigate", {"url": url})
+            snapshots.focus(dot["id"], None)
             log(f"Opened {result.get('url')}")
             return {**result, "next": "Take computer_snapshot to see what you can click or fill."}
 
@@ -393,8 +411,12 @@ class ComputerManager:
             self._require(dot, "browser")
             element = snapshots.element(dot["id"], ref, snapshot_id)
             result = await self.call(
-                dot, "POST", "/browser/click", {"ref": ref, "snapshot_id": snapshot_id}
+                dot,
+                "POST",
+                "/browser/click",
+                {"ref": ref, "snapshot_id": snapshot_id, "expect": expect(element)},
             )
+            snapshots.focus(dot["id"], element)
             log(f"Clicked {element.get('role')} “{element.get('name', '')[:60]}”")
             return result
 
@@ -406,8 +428,15 @@ class ComputerManager:
                 dot,
                 "POST",
                 "/browser/type",
-                {"ref": ref, "snapshot_id": snapshot_id, "text": text, "submit": submit},
+                {
+                    "ref": ref,
+                    "snapshot_id": snapshot_id,
+                    "text": text,
+                    "submit": submit,
+                    "expect": expect(element),
+                },
             )
+            snapshots.focus(dot["id"], None if submit else element)
             log(
                 f"Typed into {element.get('role')} “{element.get('name', '')[:60]}”{' and submitted' if submit else ''}"
             )
@@ -416,7 +445,18 @@ class ComputerManager:
         async def press(key: str) -> dict:
             ctx.check()
             self._require(dot, "browser")
-            return await self.call(dot, "POST", "/browser/key", {"key": key})
+            need = press_requirement(key)
+            body: dict[str, Any] = {"key": key}
+            if (
+                ctx.reversible
+                and need in ("search", "text")
+                and judge("press", {"key": key}) is None
+            ):
+                body["require"] = need  # let through only because of where focus is: verify it
+            result = await self.call(dot, "POST", "/browser/key", body)
+            if need != "text":
+                snapshots.focus(dot["id"], None)  # focus may have moved; look again before Enter
+            return result
 
         async def scroll(dy: int = 800) -> dict:
             ctx.check()

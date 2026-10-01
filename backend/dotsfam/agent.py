@@ -1,9 +1,11 @@
 """The Dot graph: agent → approval gate → tools → agent.
 
-The approval gate is where the Reversibility Law is enforced. When the model asks
-for a tool call that changes the outside world, the graph *interrupts*. The run
-stops, the checkpoint keeps its place, and the owner's decision later resumes the
-thread exactly there. Declined calls come back to the model as tool errors.
+The approval gate is where the Reversibility Law is enforced. `gate` judges each tool
+call and saves the ones that change the outside world; `ask` interrupts. The run
+stops, the checkpoint keeps its place, and the owner's decisions later resume the
+thread exactly there, applied to exactly the saved calls. Declined calls come back
+to the model as tool errors, and `tools` refuses any call that needs approval but
+was not approved in this step.
 """
 
 from __future__ import annotations
@@ -29,8 +31,10 @@ HISTORY_MESSAGES = 80
 TOOL_RESULT_CHARS = 30_000
 
 
-class DotState(TypedDict):
+class DotState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
+    gated: list[dict[str, Any]]  # calls waiting for the owner (saved before the interrupt)
+    approved: list[str]  # tool_call_ids the owner approved in this step
 
 
 def _pending_calls(messages: list[AnyMessage]) -> tuple[AIMessage | None, list[dict[str, Any]]]:
@@ -89,6 +93,7 @@ def build_graph(
         return {"messages": [response]}
 
     async def gate(state: DotState) -> dict:
+        """Decide which calls need the owner. Saved to state, so a resume never re-judges them."""
         _message, calls = _pending_calls(state["messages"])
         gated = []
         for call in calls:
@@ -102,29 +107,35 @@ def build_graph(
                         "reason": reason,
                     }
                 )
-        if not gated:
-            return {}
-        decisions = interrupt({"kind": "approval", "dot_id": ctx.dot["id"], "items": gated})
-        declined = []
+        return {"gated": gated, "approved": []}
+
+    async def ask(state: DotState) -> dict:
+        """Pause for the owner. On resume, exactly the saved calls get exactly their decisions."""
+        gated = state.get("gated") or []
+        decisions = interrupt({"kind": "approval", "dot_id": ctx.dot["id"], "items": gated}) or {}
+        approved, declined = [], []
         for item in gated:
-            decision = (decisions or {}).get(item["tool_call_id"], {})
-            if not decision.get("approved"):
-                note = decision.get("note")
-                declined.append(
-                    ToolMessage(
-                        content="The owner declined this action"
-                        + (f": {note}" if note else ".")
-                        + " Do not retry it unless the owner asks.",
-                        tool_call_id=item["tool_call_id"],
-                        name=item["tool"],
-                        status="error",
-                    )
+            decision = decisions.get(item["tool_call_id"]) or {}
+            if decision.get("approved") is True:
+                approved.append(item["tool_call_id"])
+                continue
+            note = decision.get("note")
+            declined.append(
+                ToolMessage(
+                    content="The owner declined this action"
+                    + (f": {note}" if note else ".")
+                    + " Do not retry it unless the owner asks.",
+                    tool_call_id=item["tool_call_id"],
+                    name=item["tool"],
+                    status="error",
                 )
-        return {"messages": declined} if declined else {}
+            )
+        return {"messages": declined, "approved": approved, "gated": []}
 
     async def run_tools(state: DotState) -> dict:
         writer = get_stream_writer()
         _message, calls = _pending_calls(state["messages"])
+        approved = set(state.get("approved") or [])
         results = []
         for call in calls:
             ctx.check()
@@ -135,6 +146,14 @@ def build_graph(
             try:
                 if tool is None:
                     raise ValueError(f"Unknown tool {name}.")
+                # Judge again right before acting: earlier calls in this batch can change what a
+                # call means (a new snapshot, a different focused field).
+                reason = approval_reason(ctx, tool, args)
+                if reason and call["id"] not in approved:
+                    raise PermissionError(
+                        f"Not run: this {reason} and needs the owner's approval. Call it again "
+                        "on its own so the owner can approve it."
+                    )
                 output = await tool.ainvoke(args)
                 content, status = _content(output), "success"
             except asyncio.CancelledError:
@@ -163,13 +182,18 @@ def build_graph(
         last = state["messages"][-1]
         return "gate" if isinstance(last, AIMessage) and last.tool_calls else END
 
+    def after_gate(state: DotState) -> str:
+        return "ask" if state.get("gated") else "tools"
+
     graph = StateGraph(DotState)
     graph.add_node("agent", agent)
     graph.add_node("gate", gate)
+    graph.add_node("ask", ask)
     graph.add_node("tools", run_tools)
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", after_agent, ["gate", END])
-    graph.add_edge("gate", "tools")
+    graph.add_conditional_edges("gate", after_gate, ["ask", "tools"])
+    graph.add_edge("ask", "tools")
     graph.add_edge("tools", "agent")
     return graph.compile(checkpointer=checkpointer)
 

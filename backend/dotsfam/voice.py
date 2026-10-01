@@ -19,18 +19,35 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .context import Stopped
 from .db import Conflict, NotFound
 from .runs import Busy, RunOutcome
 
 log = logging.getLogger("dotsfam.voice")
 
+# A decision must be the whole utterance: "okay, wait, who is that going to?" is not a yes.
 YES = re.compile(
-    r"^\W*(yes|yeah|yep|yup|approve[ds]?|go ahead|do it|send it|ship it|confirm(ed)?|sure|okay|ok)\b",
-    re.I,
+    r"(yes|yeah|yep|yup|sure|ok|okay)( please)?"
+    r"|((yes|yeah|yep|sure|ok|okay) )?(approve( it| that)?|approved|go ahead|do it|send it|ship it"
+    r"|confirm(ed)?)( please)?"
 )
 NO = re.compile(
-    r"^\W*(no|nope|decline[ds]?|don't|do not|stop|cancel|hold off|reject(ed)?|not now)\b", re.I
+    r"(no|nope|nah)( thanks| thank you)?"
+    r"|((no|nope) )?(decline( it| that)?|declined|don't( do it| send it)?|do not( do it| send it)?"
+    r"|stop|cancel( it| that)?|hold off|not now|reject( it| that)?)"
 )
+
+
+def decision_in(text: str) -> str | None:
+    """'approved', 'declined' or None when the utterance is not clearly one or the other."""
+    words = re.sub(r"\s+", " ", re.sub(r"[^a-z' ]+", " ", text.lower())).strip()
+    if YES.fullmatch(words):
+        return "approved"
+    if NO.fullmatch(words):
+        return "declined"
+    return None
+
+
 DETAIL_KEYS = ("to", "recipient", "channel", "subject", "url", "title", "command")
 
 
@@ -98,21 +115,29 @@ class CallState:
             return None
         pending = self.pending()
         if pending:
-            approval = pending[0]
-            if YES.search(text) or NO.search(text):
-                decision = "approved" if YES.search(text) else "declined"
-                try:
-                    await self.runtime.decide(approval["id"], decision, "Decided on a voice call")
-                except (Conflict, NotFound):
-                    return "That one was already decided."
-                left = len(pending) - 1
-                said = (
-                    "Approved, going ahead." if decision == "approved" else "Declined. I'll adapt."
-                )
-                if left:
-                    said += " " + describe_approval(self.runtime.store, self.pending()[0])
-                return said
-            return "First, " + describe_approval(self.runtime.store, approval)
+            heard_out = [a for a in pending if a["id"] in self.spoken_approvals]
+            if not heard_out:  # never decide something the owner has not heard on this call
+                return " ".join(self.unspoken_approvals())
+            approval = heard_out[0]
+            decision = decision_in(text)
+            if decision is None:
+                return "First, " + describe_approval(self.runtime.store, approval)
+            try:
+                await self.runtime.decide(approval["id"], decision, "Decided on a voice call")
+            except (Conflict, NotFound):
+                return "That one was already decided."
+            except (Busy, Stopped) as error:
+                return str(error)
+            said = "Approved, going ahead." if decision == "approved" else "Declined. I'll adapt."
+            more = (
+                self.unspoken_approvals()
+                or [
+                    describe_approval(self.runtime.store, a)
+                    for a in self.pending()
+                    if a["id"] in self.spoken_approvals
+                ][:1]
+            )
+            return " ".join([said, *more])
         try:
             await self.runtime.runs.send(self.thread_id, text, source="voice")
             return None

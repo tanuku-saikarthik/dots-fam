@@ -116,8 +116,10 @@ Press **Call** in any conversation. Each thing you say shows up in the chat, and
 ## Security notes
 
 - One owner per server. `OWNER_TOKEN` protects the API and UI; keep the server on localhost or behind HTTPS.
+- When a step can't be checked (an element missing from the latest snapshot, a keyboard shortcut, Enter outside a search box), the Dot asks first. Before acting, the computer confirms that the element still matches the snapshot and that focus is where the classifier assumed.
 - The browser classifier is a guardrail, not a sandbox. It catches the usual words ("Send", "Pay", "Delete", "Publish", "Submit" and similar). A site that labels its purchase button "Continue" will get past it. Keep important Dots on **Ask before acting**, give computers only the logins they need, and leave the shell off unless a Dot needs it.
 - Web pages, files, Slack messages and webhook payloads are handed to Dots as untrusted data. Prompt injection is still a real risk with any agent, and the approval gate is your backstop.
+- `read_web_page` resolves a host once, refuses private addresses, and connects to the IP it checked, so DNS rebinding can't point it at your network.
 - Webhook secrets are per trigger and can be rotated. Each trigger is limited to 30 fires an hour.
 
 ## Honest limits

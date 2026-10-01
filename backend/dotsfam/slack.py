@@ -14,7 +14,7 @@ from typing import Any
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from .context import DotContext
+from .context import DotContext, Stopped
 from .db import Conflict, NotFound
 from .runs import Busy, RunOutcome
 
@@ -113,6 +113,7 @@ class SlackBridge:
                 "approved" if action["action_id"] == APPROVE else "declined",
                 channel=body.get("channel", {}).get("id"),
                 ts=body.get("message", {}).get("ts"),
+                thread_ts=body.get("message", {}).get("thread_ts"),
             )
 
         self._handler = AsyncSocketModeHandler(app, self.settings.slack_app_token)
@@ -176,7 +177,14 @@ class SlackBridge:
             await self.post(channel, root, f"Could not start: {error}")
 
     async def handle_action(
-        self, user: str, approval_id: str, decision: str, *, channel: str | None, ts: str | None
+        self,
+        user: str,
+        approval_id: str,
+        decision: str,
+        *,
+        channel: str | None,
+        ts: str | None,
+        thread_ts: str | None = None,
     ) -> None:
         if not self.allowed(user):
             return
@@ -186,6 +194,10 @@ class SlackBridge:
             line = f"{verdict} by <@{user}>"
         except (Conflict, NotFound) as error:
             approval, line = None, str(error)
+        except (Busy, Stopped) as error:  # nothing was recorded; the buttons stay
+            if channel:
+                await self.post(channel, thread_ts or ts, str(error))
+            return
         if channel and ts:
             await self.client.chat_update(
                 channel=channel,

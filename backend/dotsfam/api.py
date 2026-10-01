@@ -201,7 +201,7 @@ class HumanAction(BaseModel):
 def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
     settings, store = runtime.settings, runtime.store
     app = FastAPI(
-        title="Dots Fam", version="0.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json"
+        title="Dots Fam", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None
     )
     app.state.runtime = runtime
 

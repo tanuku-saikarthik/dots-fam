@@ -14,6 +14,7 @@ import asyncio
 import base64
 import hmac
 import os
+import re
 import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,8 +27,32 @@ from pydantic import BaseModel, Field
 
 VIEWPORT = {"width": 1280, "height": 800}
 OUTPUT_LIMIT = 20_000
-SNAPSHOT_JS = r"""
-() => {
+DESCRIBE_FN = r"""
+function describeEl(el) {
+  const tag = el.tagName;
+  const type = (el.getAttribute('type') || '').toLowerCase();
+  let role = el.getAttribute('role');
+  if (!role) {
+    if (tag === 'A') role = 'link';
+    else if (tag === 'BUTTON' || tag === 'SUMMARY') role = 'button';
+    else if (tag === 'SELECT') role = 'combobox';
+    else if (tag === 'TEXTAREA') role = 'textbox';
+    else if (tag === 'INPUT') role = ({checkbox: 'checkbox', radio: 'radio', submit: 'button', button: 'button',
+      search: 'searchbox', reset: 'button', image: 'button'})[type] || 'textbox';
+    else if (el.isContentEditable) role = 'textbox';
+    else role = 'generic';
+  }
+  const label = el.labels && el.labels.length ? el.labels[0].innerText : '';
+  let name = el.getAttribute('aria-label') || label || el.getAttribute('placeholder') || el.getAttribute('title')
+    || el.getAttribute('alt') || (tag === 'INPUT' && ['submit', 'button'].includes(type) ? el.value : '')
+    || el.innerText || '';
+  return { role, name: name.replace(/\s+/g, ' ').trim().slice(0, 120) };
+}
+"""
+SNAPSHOT_JS = (
+    "() => {"
+    + DESCRIBE_FN
+    + r"""
   const selector = 'a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],'
     + '[role=menuitem],[role=tab],[role=switch],[role=option],[role=combobox],[role=searchbox],[contenteditable=true]';
   document.querySelectorAll('[data-dotsfam-ref]').forEach((el) => el.removeAttribute('data-dotsfam-ref'));
@@ -42,30 +67,26 @@ SNAPSHOT_JS = r"""
     el.setAttribute('data-dotsfam-ref', ref);
     const tag = el.tagName;
     const type = (el.getAttribute('type') || '').toLowerCase();
-    let role = el.getAttribute('role');
-    if (!role) {
-      if (tag === 'A') role = 'link';
-      else if (tag === 'BUTTON' || tag === 'SUMMARY') role = 'button';
-      else if (tag === 'SELECT') role = 'combobox';
-      else if (tag === 'TEXTAREA') role = 'textbox';
-      else if (tag === 'INPUT') role = ({checkbox: 'checkbox', radio: 'radio', submit: 'button', button: 'button',
-        search: 'searchbox'})[type] || 'textbox';
-      else role = 'generic';
-    }
-    const label = el.labels && el.labels.length ? el.labels[0].innerText : '';
-    let name = el.getAttribute('aria-label') || label || el.getAttribute('placeholder') || el.getAttribute('title')
-      || el.getAttribute('alt') || (tag === 'INPUT' && ['submit', 'button'].includes(type) ? el.value : '')
-      || el.innerText || '';
-    name = name.replace(/\s+/g, ' ').trim().slice(0, 120);
-    const item = { ref, role, name };
+    const item = { ref, ...describeEl(el) };
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) && !['submit', 'button'].includes(type))
       item.value = (type === 'password' ? (el.value ? '••••' : '') : (el.value || '')).slice(0, 200);
     if (el.disabled) item.disabled = true;
     elements.push(item);
   }
-  return { url: location.href, title: document.title, elements, truncated: index >= 250 };
-}
-"""
+  const active = document.activeElement;
+  const focused = active && active.getAttribute ? active.getAttribute('data-dotsfam-ref') : null;
+  return { url: location.href, title: document.title, elements, focused, truncated: index >= 250 };
+}"""
+)
+ELEMENT_JS = "(el) => {" + DESCRIBE_FN + " return describeEl(el); }"
+FOCUS_JS = (
+    "() => {"
+    + DESCRIBE_FN
+    + " const el = document.activeElement;"
+    + " return el && el !== document.body && el !== document.documentElement ? describeEl(el) : null; }"
+)
+SEARCH_LIKE = re.compile(r"\b(search|find|query|filter|look ?up)\b", re.IGNORECASE)
+TEXT_ROLES = {"textbox", "searchbox", "combobox"}
 
 
 class State:
@@ -111,9 +132,15 @@ class Navigate(BaseModel):
     url: str = Field(max_length=2048)
 
 
+class Expect(BaseModel):
+    role: str = Field(max_length=40)
+    name: str = Field(max_length=200)
+
+
 class RefAction(BaseModel):
-    ref: str = Field(max_length=20)
+    ref: str = Field(max_length=20, pattern=r"^e\d{1,4}$")
     snapshot_id: int
+    expect: Expect | None = None  # what the snapshot said this element is
 
 
 class TypeAction(RefAction):
@@ -123,6 +150,7 @@ class TypeAction(RefAction):
 
 class Key(BaseModel):
     key: str = Field(max_length=60)
+    require: str | None = Field(None, pattern="^(search|text)$")  # where focus must be
 
 
 class Scroll(BaseModel):
@@ -184,6 +212,18 @@ def create_app(data: Path, token: str, chromium: str | None = None, shell: bool 
                 409, "That element list is out of date. Take a new snapshot and use its refs."
             )
 
+    async def target(page: Any, body: RefAction) -> Any:
+        """The element behind a ref, refusing if it no longer matches what the snapshot showed."""
+        locator = page.locator(f'[data-dotsfam-ref="{body.ref}"]').first
+        if body.expect is not None:
+            now = await locator.evaluate(ELEMENT_JS, timeout=5_000)
+            if now != body.expect.model_dump():
+                raise HTTPException(
+                    409,
+                    "That element changed since the snapshot. Take a new snapshot and look again.",
+                )
+        return locator
+
     @app.exception_handler(Exception)
     async def _error(_request: Request, error: Exception):
         return JSONResponse({"error": f"{type(error).__name__}: {error}"[:500]}, status_code=500)
@@ -224,7 +264,7 @@ def create_app(data: Path, token: str, chromium: str | None = None, shell: bool 
         async with state.lock:
             check_snapshot(body.snapshot_id)
             page = await state.browser()
-            await page.locator(f'[data-dotsfam-ref="{body.ref}"]').first.click(timeout=10_000)
+            await (await target(page, body)).click(timeout=10_000)
             await page.wait_for_load_state("domcontentloaded")
             state.snapshot_id += 1
             return {"url": page.url, "title": await page.title()}
@@ -234,10 +274,10 @@ def create_app(data: Path, token: str, chromium: str | None = None, shell: bool 
         async with state.lock:
             check_snapshot(body.snapshot_id)
             page = await state.browser()
-            target = page.locator(f'[data-dotsfam-ref="{body.ref}"]').first
-            await target.fill(body.text, timeout=10_000)
+            field = await target(page, body)
+            await field.fill(body.text, timeout=10_000)
             if body.submit:
-                await target.press("Enter")
+                await field.press("Enter")
                 await page.wait_for_load_state("domcontentloaded")
                 state.snapshot_id += 1
             return {"url": page.url, "title": await page.title()}
@@ -246,6 +286,19 @@ def create_app(data: Path, token: str, chromium: str | None = None, shell: bool 
     async def key(body: Key) -> dict:
         async with state.lock:
             page = await state.browser()
+            if body.require:
+                focused = await page.evaluate(FOCUS_JS)
+                ok = bool(focused) and (
+                    (focused["role"] == "searchbox" or bool(SEARCH_LIKE.search(focused["name"])))
+                    if body.require == "search"
+                    else focused["role"] in TEXT_ROLES
+                )
+                if not ok:
+                    where = f"{focused['role']} “{focused['name']}”" if focused else "the page"
+                    raise HTTPException(
+                        409,
+                        f"Focus is on {where}, so pressing {body.key!r} there needs the owner's approval.",
+                    )
             await page.keyboard.press(body.key)
             state.snapshot_id += 1
             return {"url": page.url}

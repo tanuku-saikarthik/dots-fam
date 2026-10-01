@@ -100,12 +100,37 @@ def test_classifier_judges_elements_by_name():
     assert classify(snaps, "d1", "type", {"ref": "e4", "snapshot_id": 3, "submit": True}) == (
         "submits textbox “Message”"
     )
-    assert classify(snaps, "d1", "press", {"key": "Enter"}) == "presses Enter in textbox “Message”"
     assert classify(snaps, "d1", "shell", {"command": "ls -la"}) is None
     assert classify(snaps, "d1", "shell", {"command": "git push origin main"})
     assert classify(snaps, "d1", "shell", {"command": "curl -X POST https://x.example"})
-    with pytest.raises(ValueError):
-        classify(snaps, "d1", "click", {"ref": "e1", "snapshot_id": 2})
+    # Anything it can't check raises, and the tool layer turns that into "ask the owner".
+    for bad in (
+        {"ref": "e1", "snapshot_id": 2},
+        {"ref": "e1", "snapshot_id": "3.0"},
+        {"ref": "e9", "snapshot_id": 3},
+    ):
+        with pytest.raises(ValueError):
+            classify(snaps, "d1", "click", bad)
+
+
+def test_key_presses_are_judged_by_where_focus_is():
+    snaps = Snapshots()
+    message = {"ref": "e4", "role": "textbox", "name": "Message"}
+    search = {"ref": "e3", "role": "searchbox", "name": "Search contacts"}
+    send = {"ref": "e1", "role": "button", "name": "Send"}
+    press = lambda key: classify(snaps, "d1", "press", {"key": key})  # noqa: E731
+    assert press("Tab") is None and press("Escape") is None
+    # Unknown focus: Enter, Space and shortcuts ask.
+    for key in ("Enter", "\n", "\r", " ", "Space", "r", "Control+Enter", "Meta+s", "F5"):
+        assert press(key), key
+    snaps.focus("d1", search)
+    assert press("Enter") is None and press("\n") is None
+    assert press("Control+Enter")
+    snaps.focus("d1", message)
+    assert press("Enter") == "presses 'Enter' in textbox “Message”"
+    assert press("a") is None and press("Backspace") is None
+    snaps.focus("d1", send)
+    assert press(" ") and press("Enter")
 
 
 async def test_computer_is_off_until_the_owner_turns_it_on(runtime, computers, client):

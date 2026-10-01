@@ -22,31 +22,50 @@ class ReadWeb(BaseModel):
     url: str = Field(description="Full http(s) URL of a public page.", max_length=2048)
 
 
-def _public_host(host: str) -> bool:
+BLOCKED = "Private and local addresses are blocked."
+
+
+def public_address(host: str) -> str | None:
+    """Resolve once and return the public IP to connect to (pinned, so DNS can't change it
+    between the check and the request). None when DNS only works through an egress proxy."""
     try:
-        infos = socket.getaddrinfo(host, None)
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if not literal.is_global:
+            raise ValueError(BLOCKED)
+        return str(literal)
+    if host.lower() == "localhost" or host.lower().endswith(".localhost"):
+        raise ValueError(BLOCKED)
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
-        # Behind an egress proxy DNS may not resolve locally; refuse literal private IPs only.
-        try:
-            return ipaddress.ip_address(host).is_global
-        except ValueError:
-            return True
-    for info in infos:
-        address = ipaddress.ip_address(info[4][0])
-        if not address.is_global:
-            return False
-    return True
+        return None
+    addresses = [ipaddress.ip_address(info[4][0].split("%")[0]) for info in infos]
+    if not addresses or not all(address.is_global for address in addresses):
+        raise ValueError(BLOCKED)
+    return str(addresses[0])
 
 
-def check_url(url: str) -> str:
+def check_url(url: str) -> tuple[str, str | None]:
+    """Validate a URL; returns it with the pinned public IP (or None, see public_address)."""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ValueError("Only http(s) URLs can be read.")
     if parsed.username or parsed.password:
         raise ValueError("URLs with credentials are not allowed.")
-    if parsed.hostname in ("localhost",) or not _public_host(parsed.hostname):
-        raise ValueError("Private and local addresses are blocked.")
-    return url
+    return url, public_address(parsed.hostname)
+
+
+async def _get(client: httpx.AsyncClient, url: str, address: str | None) -> httpx.Response:
+    parsed = urlparse(url)
+    if address is None or address == parsed.hostname:
+        return await client.get(url)
+    host = f"[{address}]" if ":" in address else address
+    pinned = parsed._replace(netloc=host + (f":{parsed.port}" if parsed.port else "")).geturl()
+    extensions = {"sni_hostname": parsed.hostname} if parsed.scheme == "https" else {}
+    return await client.get(pinned, headers={"Host": parsed.netloc}, extensions=extensions)
 
 
 def html_to_text(html: str) -> tuple[str, str]:
@@ -62,14 +81,14 @@ def html_to_text(html: str) -> tuple[str, str]:
 async def fetch_page(
     url: str, limit: int, transport: httpx.AsyncBaseTransport | None = None
 ) -> dict:
-    current = check_url(url)
+    current, address = check_url(url)
     async with httpx.AsyncClient(
         timeout=20, follow_redirects=False, headers={"User-Agent": USER_AGENT}, transport=transport
     ) as client:
         for _hop in range(4):
-            response = await client.get(current)
+            response = await _get(client, current, address)
             if response.is_redirect and response.headers.get("location"):
-                current = check_url(urljoin(current, response.headers["location"]))
+                current, address = check_url(urljoin(current, response.headers["location"]))
                 continue
             break
         else:
@@ -86,7 +105,7 @@ async def fetch_page(
         else:
             raise ValueError(f"Unsupported content type: {kind}")
         return {
-            "url": str(response.url),
+            "url": current,
             "title": title,
             "text": text[:limit],
             "truncated": len(text) > limit,

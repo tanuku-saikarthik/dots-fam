@@ -269,7 +269,7 @@ class RunManager:
                                 "calls": [c["name"] for c in message.tool_calls],
                             },
                         )
-            elif node == "gate" and value:
+            elif node == "ask" and value:
                 for message in value.get("messages", []):
                     if isinstance(message, ToolMessage):
                         self._publish(

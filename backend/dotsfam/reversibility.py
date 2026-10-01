@@ -1,8 +1,13 @@
 """Classify computer steps for the Reversibility Law.
 
 Browser steps are judged by the element a Dot acts on, using names from its latest
-snapshot; shell commands by pattern. It is a classifier, not a sandbox: keep shell
-access off unless a Dot needs it.
+snapshot; key presses by what they can trigger; shell commands by pattern. When the
+classifier cannot tell, it asks the owner. It is a guardrail, not a sandbox: keep
+shell access off unless a Dot needs it.
+
+The computer service double-checks at action time: clicks and typing verify the
+element still matches the snapshot, and key presses that were let through because
+focus was in a search or text field verify that focus is really there.
 """
 
 from __future__ import annotations
@@ -26,69 +31,111 @@ RISKY_SHELL = re.compile(
     r"rm\s+-[a-z]*r[a-z]*\s+/)",
     re.IGNORECASE,
 )
-ENTER = re.compile(r"(^|\+)(enter|return|numpadenter)$", re.IGNORECASE)
+NAVIGATION_KEYS = {
+    "tab", "shift+tab", "escape", "arrowup", "arrowdown", "arrowleft", "arrowright",
+    "pageup", "pagedown", "home", "end",
+}  # fmt: skip
+TEXT_ROLES = {"textbox", "searchbox", "combobox"}
+
+
+def _int(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("snapshot_id must be a whole number from your latest snapshot.")
+    return value
 
 
 class Snapshots:
-    """Latest element names per Dot, so a click can be judged by what it targets."""
+    """Per Dot: the latest snapshot's elements, and which element probably has focus."""
 
     def __init__(self) -> None:
         self._latest: dict[str, tuple[int, dict[str, dict[str, Any]]]] = {}
-        self._typed: dict[str, dict[str, Any]] = {}
+        self._focus: dict[str, dict[str, Any] | None] = {}
 
     def remember(self, dot_id: str, snapshot: dict[str, Any]) -> None:
         elements = {item["ref"]: item for item in snapshot.get("elements", []) if "ref" in item}
         self._latest[dot_id] = (int(snapshot.get("snapshot_id", 0)), elements)
+        self._focus[dot_id] = elements.get(snapshot.get("focused") or "")
 
-    def element(self, dot_id: str, ref: str, snapshot_id: int) -> dict[str, Any]:
+    def element(self, dot_id: str, ref: Any, snapshot_id: Any) -> dict[str, Any]:
         latest = self._latest.get(dot_id)
-        if not latest or latest[0] != snapshot_id or ref not in latest[1]:
+        if not latest or latest[0] != _int(snapshot_id) or ref not in latest[1]:
             raise ValueError("Take a fresh computer_snapshot and use refs from it.")
         return latest[1][ref]
 
-    def typed(self, dot_id: str, element: dict[str, Any]) -> None:
-        self._typed[dot_id] = element
+    def focus(self, dot_id: str, element: dict[str, Any] | None) -> None:
+        self._focus[dot_id] = element
 
-    def last_typed(self, dot_id: str) -> dict[str, Any] | None:
-        return self._typed.get(dot_id)
+    def focused(self, dot_id: str) -> dict[str, Any] | None:
+        return self._focus.get(dot_id)
 
 
 def _describe(element: dict[str, Any]) -> str:
     return f"{element.get('role') or 'element'} “{str(element.get('name', ''))[:80]}”"
 
 
-def _search(element: dict[str, Any] | None) -> bool:
+def is_search(element: dict[str, Any] | None) -> bool:
     return bool(element) and (
         element.get("role") == "searchbox" or bool(SEARCH_LIKE.search(str(element.get("name", ""))))
     )
 
 
+def is_text(element: dict[str, Any] | None) -> bool:
+    return bool(element) and element.get("role") in TEXT_ROLES
+
+
+def press_requirement(key: Any) -> str:
+    """'free' (navigation), 'search' (Enter: free only in a search box),
+    'text' (typing keys: free only in a text field) or 'ask' (shortcuts and unknown keys)."""
+    raw = str(key)
+    lowered = raw.strip().lower()
+    if raw in ("\n", "\r", "\r\n") or re.fullmatch(
+        r"(shift\+)?(enter|return|numpadenter)", lowered
+    ):
+        return "search"
+    if lowered in NAVIGATION_KEYS:
+        return "free"
+    if (
+        raw == " "
+        or lowered in ("space", "backspace", "delete")
+        or (len(raw) == 1 and raw.isprintable())
+    ):
+        return "text"
+    return "ask"  # modifier chords (Ctrl+Enter, Meta+S…), function keys, anything unusual
+
+
 def classify(snapshots: Snapshots, dot_id: str, action: str, args: dict[str, Any]) -> str | None:
-    """A phrase like 'clicks button “Send”' when the step changes the outside world."""
+    """A phrase like 'clicks button “Send”' when the step may change the outside world.
+
+    Raises ValueError when the step refers to elements it cannot check; callers treat
+    that as "ask the owner".
+    """
     if action == "click":
-        element = snapshots.element(dot_id, args.get("ref", ""), int(args.get("snapshot_id", -1)))
+        element = snapshots.element(dot_id, args.get("ref"), args.get("snapshot_id"))
         return (
             f"clicks {_describe(element)}"
             if COMMIT_WORDS.search(str(element.get("name", "")))
             else None
         )
     if action == "type":
-        element = snapshots.element(dot_id, args.get("ref", ""), int(args.get("snapshot_id", -1)))
-        snapshots.typed(dot_id, element)
-        if not args.get("submit") or _search(element):
+        element = snapshots.element(dot_id, args.get("ref"), args.get("snapshot_id"))
+        if args.get("submit") is not True or is_search(element):
             return None
         return f"submits {_describe(element)}"
     if action == "press":
-        if not ENTER.search(str(args.get("key", ""))):
+        need = press_requirement(args.get("key", ""))
+        focused = snapshots.focused(dot_id)
+        where = f" in {_describe(focused)}" if focused else ""
+        if (
+            need == "free"
+            or (need == "search" and is_search(focused))
+            or (need == "text" and is_text(focused))
+        ):
             return None
-        element = snapshots.last_typed(dot_id)
-        if _search(element):
-            return None
-        return f"presses Enter in {_describe(element)}" if element else "presses Enter"
+        return f"presses {str(args.get('key', ''))!r}{where}"
     if action == "shell":
         return (
             "runs a command that changes an outside system"
             if RISKY_SHELL.search(str(args.get("command", "")))
             else None
         )
-    return None
+    raise ValueError(f"Unknown computer action {action}.")

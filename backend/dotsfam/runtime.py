@@ -12,10 +12,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from .config import Settings
-from .db import Store
+from .context import Stopped
+from .db import Conflict, Store
 from .delegation import DelegationManager
 from .models import ModelFactory, default_factory
-from .runs import RunManager
+from .runs import Busy, RunManager
 from .scheduler import Scheduler
 from .team import install_team
 
@@ -50,11 +51,25 @@ class Runtime:
     async def decide(
         self, approval_id: str, decision: str, note: str | None = None
     ) -> tuple[dict[str, Any], bool]:
-        """Record an owner decision; resume the paused run once its whole batch is decided."""
-        approval = self.store.decide_approval(approval_id, decision, note)
+        """Record an owner decision; resume the paused run once its whole batch is decided.
+
+        The last decision in a batch is only recorded if the run can resume right now, and
+        it is undone if the resume fails, so a conversation is never left half-decided.
+        """
+        approval = self.store.approval(approval_id)
+        if approval["status"] != "pending":
+            raise Conflict("This approval was already decided.")
         batch = self.store.approvals(batch_id=approval["batch_id"])
-        if any(item["status"] == "pending" for item in batch):
+        last = all(item["status"] != "pending" or item["id"] == approval_id for item in batch)
+        if last:
+            if self.store.flags()["paused"]:
+                raise Stopped("The team is paused. Resume it, then decide.")
+            if self.runs.busy(approval["thread_id"]):
+                raise Busy("This Dot is still finishing up. Try again in a moment.")
+        approval = self.store.decide_approval(approval_id, decision, note)
+        if not last:
             return approval, False
+        batch = self.store.approvals(batch_id=approval["batch_id"])
         decisions = {
             item["tool_call_id"]: {"approved": item["status"] == "approved", "note": item["note"]}
             for item in batch
@@ -62,7 +77,13 @@ class Runtime:
         delegation = self.store.delegation_for_worker(approval["thread_id"])
         if delegation:
             self.store.set_delegation(delegation["id"], "running")
-        await self.runs.resume(approval["thread_id"], decisions)
+        try:
+            await self.runs.resume(approval["thread_id"], decisions)
+        except Exception:
+            self.store.reopen_approvals(approval["batch_id"])
+            if delegation:
+                self.store.set_delegation(delegation["id"], "waiting_approval")
+            raise
         return approval, True
 
     def root_thread(self, thread_id: str) -> str:
