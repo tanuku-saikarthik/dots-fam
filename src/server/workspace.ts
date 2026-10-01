@@ -1,5 +1,8 @@
+import { Approvals } from './approvals.js';
 import { ComputerStore } from './computer-store.js';
+import { Delegations } from './delegation.js';
 import { Pages } from './pages.js';
+import { Triggers } from './triggers.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -10,6 +13,9 @@ export class WorkspaceStore {
   private db: DatabaseSync;
   readonly pages: Pages;
   readonly computers: ComputerStore;
+  readonly approvals: Approvals;
+  readonly delegations: Delegations;
+  readonly triggers: Triggers;
   constructor(
     path: string,
     readonly ownerId: string,
@@ -26,7 +32,13 @@ export class WorkspaceStore {
     for (const [table, column, definition] of [
       ['dots', 'learningContainerId', 'TEXT'],
       ['dots', 'skillDeliveryEnabled', 'INTEGER NOT NULL DEFAULT 0'],
+      ['dots', 'model', 'TEXT'],
+      ['dots', 'canDelegate', 'INTEGER NOT NULL DEFAULT 0'],
+      ['dots', 'approvalMode', "TEXT NOT NULL DEFAULT 'reversible'"],
       ['thread_bindings', 'learningContainerId', 'TEXT'],
+      // Internal threads carry delegated work; they never appear in chat lists
+      // and the browser runtime cannot address them.
+      ['thread_bindings', 'internal', 'INTEGER NOT NULL DEFAULT 0'],
     ]) {
       if (
         !this.db
@@ -50,6 +62,9 @@ export class WorkspaceStore {
         COMMIT;`);
     }
     this.computers = new ComputerStore(this.db);
+    this.approvals = new Approvals(this.db);
+    this.delegations = new Delegations(this.db);
+    this.triggers = new Triggers(this.db);
     this.pages = new Pages(this.db, (id) =>
       this.spaces().some((space) => space.id === id),
     );
@@ -109,6 +124,10 @@ export class WorkspaceStore {
         researchAllowed: !!row.researchAllowed,
         memoryAllowed: !!row.memoryAllowed,
         skillDeliveryEnabled: !!row.skillDeliveryEnabled,
+        model: typeof row.model === 'string' && row.model ? row.model : null,
+        canDelegate: !!row.canDelegate,
+        approvalMode:
+          row.approvalMode === 'autonomous' ? 'autonomous' : 'reversible',
       })) as unknown as Dot[];
   }
   dot(id: string) {
@@ -123,6 +142,7 @@ export class WorkspaceStore {
     spaceIds: string[] = [spaceId],
     learningContainerId: string | null = null,
     skillDeliveryEnabled = false,
+    team: Partial<Pick<Dot, 'model' | 'canDelegate' | 'approvalMode'>> = {},
   ): Dot {
     this.validateSpaceAccess(spaceId, spaceIds);
     validateLearningSettings(learningContainerId, skillDeliveryEnabled);
@@ -136,13 +156,16 @@ export class WorkspaceStore {
       memoryAllowed,
       learningContainerId,
       skillDeliveryEnabled,
+      model: team.model ?? null,
+      canDelegate: team.canDelegate ?? false,
+      approvalMode: team.approvalMode ?? 'reversible',
       createdAt: Date.now(),
     };
     this.db.exec('BEGIN');
     try {
       this.db
         .prepare(
-          'INSERT INTO dots (id, spaceId, name, instructions, researchAllowed, memoryAllowed, createdAt, learningContainerId, skillDeliveryEnabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO dots (id, spaceId, name, instructions, researchAllowed, memoryAllowed, createdAt, learningContainerId, skillDeliveryEnabled, model, canDelegate, approvalMode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         )
         .run(
           dot.id,
@@ -154,6 +177,9 @@ export class WorkspaceStore {
           dot.createdAt,
           learningContainerId,
           +skillDeliveryEnabled,
+          dot.model,
+          +dot.canDelegate,
+          dot.approvalMode,
         );
       for (const id of dot.spaceIds)
         this.db.prepare('INSERT INTO dot_spaces VALUES (?, ?)').run(dot.id, id);
@@ -186,6 +212,9 @@ export class WorkspaceStore {
       spaceIds?: string[];
       learningContainerId?: string | null;
       skillDeliveryEnabled?: boolean;
+      model?: string | null;
+      canDelegate?: boolean;
+      approvalMode?: Dot['approvalMode'];
     },
   ): Dot {
     const current = this.dot(id);
@@ -218,6 +247,16 @@ export class WorkspaceStore {
       this.db
         .prepare('UPDATE dots SET spaceId=? WHERE id=?')
         .run(defaultSpace, id);
+      this.db
+        .prepare(
+          'UPDATE dots SET model=?, canDelegate=?, approvalMode=? WHERE id=?',
+        )
+        .run(
+          patch.model === undefined ? current.model : patch.model || null,
+          +(patch.canDelegate ?? current.canDelegate),
+          patch.approvalMode ?? current.approvalMode,
+          id,
+        );
       this.db.prepare('DELETE FROM dot_spaces WHERE dotId=?').run(id);
       for (const space of new Set(spaceIds))
         this.db.prepare('INSERT INTO dot_spaces VALUES (?, ?)').run(id, space);
@@ -231,9 +270,23 @@ export class WorkspaceStore {
   conversations(): Conversation[] {
     return this.db
       .prepare(
-        'SELECT * FROM thread_bindings WHERE ownerId=? ORDER BY createdAt DESC',
+        'SELECT id, dotId, ownerId, title, createdAt, learningContainerId FROM thread_bindings WHERE ownerId=? AND internal=0 ORDER BY createdAt DESC',
       )
       .all(this.ownerId) as unknown as Conversation[];
+  }
+  isInternalThread(id: string) {
+    return !!this.db
+      .prepare('SELECT 1 FROM thread_bindings WHERE id=? AND internal=1')
+      .get(id);
+  }
+  /** Bind a server-only thread for delegated work. */
+  bindInternalThread(id: string, dotId: string, title: string) {
+    if (!this.dot(dotId)) throw new Error('Dot not found.');
+    this.db
+      .prepare(
+        'INSERT INTO thread_bindings (id, dotId, ownerId, title, createdAt, learningContainerId, internal) VALUES (?, ?, ?, ?, ?, NULL, 1)',
+      )
+      .run(id, dotId, this.ownerId, title, Date.now());
   }
   bindThread(id: string, dotId: string, title: string): Conversation {
     const dot = this.dot(dotId);
@@ -261,7 +314,11 @@ export class WorkspaceStore {
     return value;
   }
   requireThread(id: string, dotId?: string): Conversation {
-    const thread = this.conversations().find((thread) => thread.id === id);
+    const thread = this.db
+      .prepare(
+        'SELECT id, dotId, ownerId, title, createdAt, learningContainerId FROM thread_bindings WHERE ownerId=? AND id=?',
+      )
+      .get(this.ownerId, id) as unknown as Conversation | undefined;
     if (!thread || (dotId && thread.dotId !== dotId))
       throw new Error('Conversation does not belong to this Dot and owner.');
     return thread;

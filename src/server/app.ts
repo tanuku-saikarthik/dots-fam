@@ -9,6 +9,9 @@ import { configured, type Config } from './research.js';
 import type { Platform } from './platform.js';
 import { VoiceService } from './voice.js';
 import { workspaceRoutes } from './workspace-routes.js';
+import { teamRoutes } from './team-routes.js';
+import { cronSchema, timezoneSchema } from './schedule.js';
+import { triggerPrompt } from './triggers.js';
 const interval = z.number().int().min(60).max(31_536_000).nullable();
 export interface AppOptions {
   store: Store;
@@ -27,6 +30,61 @@ export function createApp({
   platform,
 }: AppOptions) {
   const app = new Hono();
+  if (platform) {
+    // Webhooks authenticate with their own per-trigger secret, not the owner token.
+    app.use(
+      '/hooks/*',
+      bodyLimit({
+        maxSize: 256_000,
+        onError: (c) => c.json({ error: 'Payload is too large.' }, 413),
+      }),
+    );
+    app.post('/hooks/:id', async (c) => {
+      c.header('Cache-Control', 'no-store');
+      const raw = await c.req.text();
+      let trigger;
+      try {
+        trigger = platform.workspace.triggers.verify(
+          c.req.param('id'),
+          c.req.raw.headers,
+          raw,
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Webhook not authorized.';
+        return c.json(
+          { error: message },
+          message.includes('disabled') ? 403 : 401,
+        );
+      }
+      if (platform.setup().missing.length)
+        return c.json({ error: 'Setup required.' }, 503);
+      try {
+        platform.workspace.requireThread(trigger.threadId);
+        platform.workspace.triggers.fire(trigger.id);
+      } catch (error) {
+        return c.json(
+          {
+            error:
+              error instanceof Error ? error.message : 'Trigger unavailable.',
+          },
+          429,
+        );
+      }
+      const event =
+        c.req.header('x-github-event') ??
+        c.req.header('linear-event') ??
+        c.req.header('x-opendots-event') ??
+        '';
+      const task = store.createTask(
+        triggerPrompt(trigger, event.slice(0, 80), raw),
+        null,
+        { triggerId: trigger.id },
+      );
+      platform.workspace.bindTask(task.id, trigger.threadId);
+      return c.json({ queued: task.id }, 202);
+    });
+  }
   app.use(
     '/api/*',
     bodyLimit({
@@ -74,6 +132,7 @@ export function createApp({
     await next();
   });
   if (platform) app.route('/api', computerRoutes(platform.computers));
+  if (platform) app.route('/api', teamRoutes(platform));
   const voice = platform ? new VoiceService(platform) : undefined;
   if (platform && voice) app.route('/api', workspaceRoutes(platform, voice));
   app.get('/api/state', (c) =>
@@ -90,6 +149,8 @@ export function createApp({
       .object({
         prompt: z.string().trim().min(3).max(4000),
         intervalSeconds: interval.optional(),
+        cron: cronSchema.nullable().optional(),
+        timezone: timezoneSchema.nullable().optional(),
         threadId: z.string().optional(),
       })
       .strict()
@@ -98,7 +159,7 @@ export function createApp({
       return c.json(
         {
           error:
-            'Enter a request between 3 and 4,000 characters; repeat intervals must be at least 60 seconds.',
+            'Enter a request between 3 and 4,000 characters; repeat intervals must be at least 60 seconds, and routines need a five-field cron and a valid time zone.',
         },
         400,
       );
@@ -124,10 +185,20 @@ export function createApp({
         );
       }
     }
-    const task = store.createTask(
-      parsed.data.prompt,
-      parsed.data.intervalSeconds,
-    );
+    let task;
+    try {
+      task = store.createTask(parsed.data.prompt, parsed.data.intervalSeconds, {
+        cron: parsed.data.cron,
+        timezone: parsed.data.timezone ?? platform?.config.timezone ?? 'UTC',
+      });
+    } catch (error) {
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'Invalid schedule.',
+        },
+        400,
+      );
+    }
     if (platform && parsed.data.threadId)
       platform.workspace.bindTask(task.id, parsed.data.threadId);
     return c.json(task, 201);
@@ -138,11 +209,14 @@ export function createApp({
   });
   app.post('/api/tasks/:id/actions', async (c) => {
     const parsed = z
-      .object({ action: z.enum(['run', 'pause', 'cancel']) })
+      .object({ action: z.enum(['run', 'pause', 'cancel', 'resume']) })
       .strict()
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: 'Unknown task action.' }, 400);
-    if (parsed.data.action === 'run' && !store.settings().researchAllowed)
+    if (
+      (parsed.data.action === 'run' || parsed.data.action === 'resume') &&
+      !store.settings().researchAllowed
+    )
       return c.json({ error: 'Research is disabled in Settings.' }, 403);
     const task = store.action(c.req.param('id'), parsed.data.action);
     if (parsed.data.action !== 'run') runner.abort(c.req.param('id'));
@@ -150,16 +224,40 @@ export function createApp({
   });
   app.put('/api/tasks/:id/schedule', async (c) => {
     const parsed = z
-      .object({ intervalSeconds: interval })
-      .strict()
+      .union([
+        z.object({ intervalSeconds: interval }).strict(),
+        z
+          .object({
+            cron: cronSchema.nullable(),
+            timezone: timezoneSchema.nullable().optional(),
+          })
+          .strict(),
+      ])
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success)
       return c.json(
-        { error: 'Repeat interval must be 60 seconds to one year, or null.' },
+        {
+          error:
+            'Use a repeat interval of 60 seconds to one year, or a five-field cron with a valid time zone.',
+        },
         400,
       );
-    const task = store.schedule(c.req.param('id'), parsed.data.intervalSeconds);
-    return task ? c.json(task) : c.json({ error: 'Task not found.' }, 404);
+    try {
+      const task =
+        'cron' in parsed.data
+          ? store.scheduleCron(
+              c.req.param('id'),
+              parsed.data.cron,
+              parsed.data.timezone ?? platform?.config.timezone ?? 'UTC',
+            )
+          : store.schedule(c.req.param('id'), parsed.data.intervalSeconds);
+      return task ? c.json(task) : c.json({ error: 'Task not found.' }, 404);
+    } catch (error) {
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Invalid schedule.' },
+        400,
+      );
+    }
   });
   app.patch('/api/settings', async (c) => {
     const parsed = z
@@ -180,6 +278,7 @@ export function createApp({
       previous.memoryAllowed !== settings.memoryAllowed
     )
       runner.abortAll();
+    if (settings.paused) platform?.team.delegations.cancelAll();
     if (settings.paused) voice?.abortAll();
     else void voice?.resumePending();
     return c.json(settings);

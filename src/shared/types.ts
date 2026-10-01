@@ -1,5 +1,11 @@
 export type Status =
-  'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  | 'queued'
+  | 'scheduled'
+  | 'running'
+  | 'paused'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 export interface Settings {
   name: string;
   paused: boolean;
@@ -11,6 +17,12 @@ export interface Task {
   prompt: string;
   status: Status;
   intervalSeconds: number | null;
+  /** Five-field cron expression; when set it takes precedence over intervalSeconds. */
+  cron?: string | null;
+  /** IANA time zone used to evaluate `cron`. */
+  timezone?: string | null;
+  /** Webhook trigger that created this one-off task, if any. */
+  triggerId?: string | null;
   nextRunAt: number | null;
   createdAt: number;
   updatedAt: number;
@@ -62,7 +74,13 @@ export interface State {
   mode: 'sample' | 'live';
   configured: boolean;
 }
-export type Action = 'run' | 'pause' | 'cancel';
+export type Action = 'run' | 'pause' | 'cancel' | 'resume';
+/**
+ * reversible: the Reversibility Law. Read, research and draft freely; anything that
+ * changes the outside world needs an owner approval first.
+ * autonomous: no approval gate (other permissions still apply).
+ */
+export type ApprovalMode = 'reversible' | 'autonomous';
 export interface Space {
   id: string;
   name: string;
@@ -81,6 +99,65 @@ export interface Dot {
   createdAt: number;
   learningContainerId?: string | null;
   skillDeliveryEnabled?: boolean;
+  /** `provider:model`, e.g. `anthropic:claude-sonnet-4-5`. Null uses the default model. */
+  model: string | null;
+  /** Chief of Staff: may hand scoped briefs to the other Dots. */
+  canDelegate: boolean;
+  approvalMode: ApprovalMode;
+}
+export type DelegationStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+export interface Delegation {
+  id: string;
+  groupId: string;
+  /** Conversation of the delegating Dot; follow-ups are delivered there. */
+  threadId: string | null;
+  fromDotId: string;
+  toDotId: string;
+  brief: string;
+  expectedOutput: string;
+  status: DelegationStatus;
+  result: string | null;
+  error: string | null;
+  model: string | null;
+  createdAt: number;
+  finishedAt: number | null;
+}
+export interface DelegationEvent {
+  id: number;
+  delegationId: string;
+  text: string;
+  createdAt: number;
+}
+export type ApprovalStatus =
+  'pending' | 'approved' | 'declined' | 'used' | 'expired';
+export interface Approval {
+  id: string;
+  dotId: string;
+  threadId: string | null;
+  delegationId: string | null;
+  kind: string;
+  summary: string;
+  details: string;
+  status: ApprovalStatus;
+  createdAt: number;
+  decidedAt: number | null;
+  usedAt: number | null;
+}
+export interface Trigger {
+  id: string;
+  name: string;
+  threadId: string;
+  prompt: string;
+  enabled: boolean;
+  createdAt: number;
+  lastFiredAt: number | null;
+  fireCount: number;
+}
+export interface TeamState {
+  delegations: Delegation[];
+  events: DelegationEvent[];
+  approvals: Approval[];
+  triggers: Trigger[];
 }
 export interface Conversation {
   id: string;
@@ -108,6 +185,13 @@ export interface SetupStatus {
   voice: boolean;
   slack: string;
   missing: string[];
+  /** Model providers with a configured key. */
+  providers?: string[];
+  /** Default `provider:model` for Dots without their own model. */
+  defaultModel?: string | null;
+  /** Suggested model for specialist (worker) Dots. */
+  workerModel?: string | null;
+  timezone?: string;
 }
 export interface WorkspaceState {
   spaces: Space[];

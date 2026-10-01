@@ -14,7 +14,11 @@ export class Runner {
       signal: AbortSignal,
       progress: (text: string) => void,
     ) => Promise<Result>,
+    private options: { concurrency?: number; timeoutMs?: number } = {},
   ) {}
+  private get concurrency() {
+    return Math.max(1, this.options.concurrency ?? 1);
+  }
   start() {
     if (!this.timer) {
       this.timer = setInterval(() => void this.tick(), 1000);
@@ -41,7 +45,7 @@ export class Runner {
       controller.abort(new Error('Run stopped because settings changed.'));
   }
   async tick() {
-    if (this.active.size) return;
+    if (this.active.size >= this.concurrency) return;
     const claim = this.store.claim();
     if (!claim) return;
     const controller = new AbortController();
@@ -50,12 +54,15 @@ export class Runner {
       if (!this.store.owns(claim))
         controller.abort(new Error('Run permission or lease was revoked.'));
     }, 100);
+    const limit = this.options.timeoutMs ?? 90_000;
     const timeout = setTimeout(
       () =>
         controller.abort(
-          new Error('Research exceeded the 90 second time limit.'),
+          new Error(
+            `Research exceeded the ${Math.round(limit / 1000)} second time limit.`,
+          ),
         ),
-      90_000,
+      limit,
     );
     try {
       const settings = this.store.settings();

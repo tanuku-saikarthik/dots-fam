@@ -75,6 +75,7 @@ export function validateRuntimeScope(
   ]) {
     if (candidate) {
       if (threadId && candidate !== threadId) return deny();
+      if (workspace.isInternalThread(candidate)) return deny();
       workspace.requireThread(candidate, agentId);
     }
   }

@@ -16,22 +16,70 @@ import { runThreadTurn } from './headless.js';
 import { setupStatus, type PlatformConfig } from './platform-config.js';
 import { validateRuntimeScope } from './runtime-scope.js';
 import { learningSelector } from './learning.js';
+import { DelegationManager } from './delegation.js';
+import { runWorker, type TeamServices } from './dot-runtime.js';
+import { formatModelRef, resolveModel } from './models.js';
 export class Platform {
   private channelStartupFailed = false;
   readonly pages: PageService;
   readonly computers: ComputerService;
   readonly intelligence?: CopilotKitIntelligence;
   readonly handler?: CopilotHonoApp;
+  readonly team: TeamServices;
   constructor(
     readonly store: Store,
     readonly workspace: WorkspaceStore,
     readonly config: PlatformConfig,
+    teamOptions: { maxConcurrent?: number; workerTimeoutMs?: number } = {},
   ) {
     this.computers = new ComputerService(
       workspace,
       config,
       () => store.settings().paused,
     );
+    const followUp = (threadId: string, prompt: string) => {
+      workspace.requireThread(threadId);
+      const task = store.createTask(prompt.slice(0, 20_000));
+      workspace.bindTask(task.id, threadId);
+    };
+    const team: TeamServices = {
+      followUp,
+      delegations: new DelegationManager({
+        delegations: workspace.delegations,
+        dots: () => workspace.dots(),
+        paused: () => store.settings().paused,
+        modelFor: (dot) => {
+          try {
+            return formatModelRef(resolveModel(config, dot.model));
+          } catch {
+            return dot.model;
+          }
+        },
+        runWorker: (request) =>
+          runWorker(
+            {
+              store,
+              workspace,
+              config,
+              dot: request.to,
+              signal: request.signal,
+              team,
+            },
+            {
+              delegationId: request.delegation.id,
+              rootThreadId: request.delegation.threadId,
+              from: request.from,
+              event: request.event,
+            },
+            request.delegation.brief,
+            request.delegation.expectedOutput,
+          ),
+        deliver: followUp,
+        maxConcurrent: teamOptions.maxConcurrent,
+        workerTimeoutMs: teamOptions.workerTimeoutMs,
+      }),
+    };
+    this.team = team;
     this.pages = new PageService(workspace, () => {
       this.requireReady();
       return this.intelligence!;
@@ -56,7 +104,8 @@ export class Platform {
         config,
         ownerId: workspace.ownerId,
         paused: () => store.settings().paused,
-        agent: () => new DotAgent(store, workspace, config, dotId, true),
+        agent: () =>
+          new DotAgent(store, workspace, config, dotId, true, this.team),
       });
       channels.push(slack);
     }
@@ -72,7 +121,7 @@ export class Platform {
             .dots()
             .map((dot) => [
               dot.id,
-              new DotAgent(store, workspace, config, dot.id),
+              new DotAgent(store, workspace, config, dot.id, false, this.team),
             ]),
         ),
       channels,

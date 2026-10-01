@@ -7,6 +7,7 @@ import {
   learningContainerIdSchema,
   validateLearningSettings,
 } from '../shared/learning.js';
+import { modelRefSchema } from './models.js';
 const dotSchema = z
   .object({
     name: z.string().trim().min(1).max(40),
@@ -17,6 +18,9 @@ const dotSchema = z
     skillDeliveryEnabled: z.boolean().optional(),
     spaceIds: z.array(z.string().min(1)).min(1).max(100).optional(),
     spaceId: z.string().min(1).optional(),
+    model: modelRefSchema.nullable().optional().or(z.literal('')),
+    canDelegate: z.boolean().optional(),
+    approvalMode: z.enum(['reversible', 'autonomous']).optional(),
   })
   .strict();
 export function workspaceRoutes(platform: Platform, voice: VoiceService) {
@@ -87,6 +91,11 @@ export function workspaceRoutes(platform: Platform, voice: VoiceService) {
         data.data.spaceIds,
         data.data.learningContainerId,
         data.data.skillDeliveryEnabled,
+        {
+          model: data.data.model || null,
+          canDelegate: data.data.canDelegate,
+          approvalMode: data.data.approvalMode,
+        },
       ),
       201,
     );
@@ -115,7 +124,13 @@ export function workspaceRoutes(platform: Platform, voice: VoiceService) {
         400,
       );
     }
-    return c.json(platform.workspace.updateDot(c.req.param('id'), data.data));
+    return c.json(
+      platform.workspace.updateDot(c.req.param('id'), {
+        ...data.data,
+        model:
+          data.data.model === undefined ? undefined : data.data.model || null,
+      }),
+    );
   });
   app.post('/conversations', async (c) => {
     const data = z

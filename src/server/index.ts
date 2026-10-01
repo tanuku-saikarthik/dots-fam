@@ -8,6 +8,18 @@ import { createApp } from './app.js';
 import { WorkspaceStore } from './workspace.js';
 import { Platform } from './platform.js';
 import type { PlatformConfig } from './platform-config.js';
+import { validTimezone } from './schedule.js';
+const bounded = (name: string, fallback: number, min: number, max: number) => {
+  const value = Number(process.env[name] ?? fallback);
+  return Number.isFinite(value)
+    ? Math.min(max, Math.max(min, Math.round(value)))
+    : fallback;
+};
+const timezone = process.env.DEFAULT_TIMEZONE || 'UTC';
+if (!validTimezone(timezone))
+  throw new Error(
+    'DEFAULT_TIMEZONE must be an IANA time zone, e.g. Asia/Kolkata.',
+  );
 const host = process.env.HOST ?? '127.0.0.1';
 const port = Number(process.env.PORT ?? 4310);
 const ownerToken = process.env.OWNER_TOKEN;
@@ -20,6 +32,8 @@ if (
   );
 const database = process.env.DATABASE_PATH ?? 'data/opendots.sqlite';
 const store = new Store(database);
+const taskTimeoutMs = bounded('TASK_TIMEOUT_SECONDS', 420, 60, 3600) * 1000;
+store.leaseMs = taskTimeoutMs + 60_000;
 const workspace = new WorkspaceStore(
   database,
   process.env.OWNER_ID ?? 'opendots-owner',
@@ -31,6 +45,14 @@ const config: PlatformConfig = {
   apiKey: process.env.OPENAI_API_KEY,
   model: process.env.OPENAI_MODEL,
   baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+  anthropicKey: process.env.ANTHROPIC_API_KEY || undefined,
+  anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL || undefined,
+  openrouterKey: process.env.OPENROUTER_API_KEY || undefined,
+  openrouterBaseUrl: process.env.OPENROUTER_BASE_URL || undefined,
+  defaultModel: process.env.DEFAULT_MODEL || undefined,
+  workerModel: process.env.WORKER_MODEL || undefined,
+  timezone,
+  publicUrl: process.env.PUBLIC_URL || undefined,
   browserUrl: process.env.BROWSER_URL,
   browserSecret: process.env.BROWSER_SECRET,
   computerSupervisorUrl: process.env.COMPUTER_SUPERVISOR_URL,
@@ -50,7 +72,10 @@ const config: PlatformConfig = {
   runtimeUrl: `http://${host === '::1' ? '[::1]' : '127.0.0.1'}:${port}/api/copilotkit`,
   ownerToken,
 };
-const platform = new Platform(store, workspace, config);
+const platform = new Platform(store, workspace, config, {
+  maxConcurrent: bounded('MAX_DELEGATED_WORKERS', 4, 1, 16),
+  workerTimeoutMs: bounded('WORKER_TIMEOUT_SECONDS', 300, 30, 1800) * 1000,
+});
 const researchConfig = {
   mode: 'live' as const,
   apiKey: config.apiKey,
@@ -71,6 +96,10 @@ const runner = new Runner(
     progress('Running this task in its Intelligence conversation.');
     const text = await platform.turn(threadId, claim.prompt, signal);
     return { text, sources: [], sample: false };
+  },
+  {
+    concurrency: bounded('RUNNER_CONCURRENCY', 2, 1, 8),
+    timeoutMs: taskTimeoutMs,
   },
 );
 const wsOrigin = new URL(

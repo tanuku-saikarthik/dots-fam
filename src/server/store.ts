@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { describeNextRun, nextCronRun } from './schedule.js';
 import type {
   Action,
   Detail,
@@ -20,8 +21,15 @@ const defaults: Settings = {
   researchAllowed: true,
   memoryAllowed: true,
 };
+export interface TaskOptions {
+  cron?: string | null;
+  timezone?: string | null;
+  triggerId?: string | null;
+}
 export class Store {
   private db: DatabaseSync;
+  /** How long a claimed run may hold its lease before it is retried. */
+  leaseMs = 180_000;
   constructor(path: string) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
@@ -34,9 +42,25 @@ export class Store {
       CREATE INDEX IF NOT EXISTS tasks_due ON tasks(status, nextRunAt);
       CREATE INDEX IF NOT EXISTS runs_task ON runs(taskId, startedAt);
       CREATE INDEX IF NOT EXISTS events_task ON events(taskId, id);`);
+    for (const [column, definition] of [
+      ['cron', 'TEXT'],
+      ['timezone', 'TEXT'],
+      ['triggerId', 'TEXT'],
+    ]) {
+      if (
+        !this.db
+          .prepare('PRAGMA table_info(tasks)')
+          .all()
+          .some((field) => field.name === column)
+      )
+        this.db.exec(`ALTER TABLE tasks ADD COLUMN ${column} ${definition}`);
+    }
     this.db
       .prepare('INSERT OR IGNORE INTO settings VALUES (1, ?)')
       .run(JSON.stringify(defaults));
+  }
+  private nextRun(task: Pick<Task, 'cron' | 'timezone'>, now = Date.now()) {
+    return task.cron ? nextCronRun(task.cron, task.timezone, now) : null;
   }
   close() {
     this.db.close();
@@ -92,15 +116,41 @@ export class Store {
       .prepare('SELECT * FROM tasks WHERE id=?')
       .get(id) as unknown as Task | undefined;
   }
-  createTask(prompt: string, intervalSeconds: number | null = null): Task {
+  createTask(
+    prompt: string,
+    intervalSeconds: number | null = null,
+    options: TaskOptions = {},
+  ): Task {
     const now = Date.now();
     const id = randomUUID();
+    const cron = options.cron || null;
+    const timezone = cron ? options.timezone || 'UTC' : null;
+    const next = cron ? nextCronRun(cron, timezone, now) : null;
     this.db
       .prepare(
-        "INSERT INTO tasks VALUES (?, ?, 'queued', ?, NULL, ?, ?, NULL, NULL, NULL)",
+        'INSERT INTO tasks (id, prompt, status, intervalSeconds, nextRunAt, createdAt, updatedAt, error, lease, leaseUntil, cron, timezone, triggerId) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)',
       )
-      .run(id, prompt, intervalSeconds, now, now);
-    this.event(id, null, 'Task added to the research queue.');
+      .run(
+        id,
+        prompt,
+        cron ? 'scheduled' : 'queued',
+        cron ? null : intervalSeconds,
+        next,
+        now,
+        now,
+        cron,
+        timezone,
+        options.triggerId ?? null,
+      );
+    this.event(
+      id,
+      null,
+      cron
+        ? `Scheduled (${cron}, ${timezone}). Next run ${describeNextRun(next!, timezone)}.`
+        : options.triggerId
+          ? 'Queued by an event trigger.'
+          : 'Task added to the research queue.',
+    );
     return this.task(id)!;
   }
   detail(id: string): Detail | undefined {
@@ -151,8 +201,20 @@ export class Store {
       const task = this.task(id);
       if (!task) return undefined;
       if (action === 'run' && task.status === 'running') return task;
+      if (action === 'resume' && task.cron) {
+        const next = this.nextRun(task)!;
+        this.invalidate(
+          task,
+          'scheduled',
+          `Routine resumed. Next run ${describeNextRun(next, task.timezone ?? null)}.`,
+        );
+        this.db
+          .prepare('UPDATE tasks SET error=NULL, nextRunAt=? WHERE id=?')
+          .run(next, id);
+        return this.task(id);
+      }
       const status =
-        action === 'run'
+        action === 'run' || action === 'resume'
           ? 'queued'
           : action === 'pause'
             ? 'paused'
@@ -160,7 +222,7 @@ export class Store {
       this.invalidate(
         task,
         status,
-        action === 'run' ? 'Task queued for a new run.' : `Task ${status}.`,
+        status === 'queued' ? 'Task queued for a new run.' : `Task ${status}.`,
       );
       this.db
         .prepare('UPDATE tasks SET error=NULL, nextRunAt=NULL WHERE id=?')
@@ -168,9 +230,52 @@ export class Store {
       return this.task(id);
     });
   }
+  /** Run on a cron schedule in a time zone; null removes the routine. */
+  scheduleCron(
+    id: string,
+    cron: string | null,
+    timezone: string | null,
+  ): Task | undefined {
+    const task = this.task(id);
+    if (!task) return undefined;
+    const tz = cron ? timezone || 'UTC' : null;
+    const next = cron ? nextCronRun(cron, tz) : null;
+    const status =
+      cron && !['running', 'paused', 'cancelled'].includes(task.status)
+        ? 'scheduled'
+        : !cron && task.status === 'scheduled'
+          ? 'completed'
+          : task.status;
+    this.db
+      .prepare(
+        'UPDATE tasks SET cron=?, timezone=?, intervalSeconds=NULL, nextRunAt=?, status=?, updatedAt=? WHERE id=?',
+      )
+      .run(
+        cron,
+        tz,
+        status === 'scheduled' ? next : null,
+        status,
+        Date.now(),
+        id,
+      );
+    this.event(
+      id,
+      null,
+      cron
+        ? `Runs on ${cron} (${tz}). Next run ${describeNextRun(next!, tz)}.`
+        : 'Routine schedule removed.',
+    );
+    return this.task(id);
+  }
   schedule(id: string, intervalSeconds: number | null): Task | undefined {
     const task = this.task(id);
     if (!task) return undefined;
+    if (task.cron)
+      this.db
+        .prepare(
+          "UPDATE tasks SET cron=NULL, timezone=NULL, status=CASE WHEN status='scheduled' THEN 'completed' ELSE status END WHERE id=?",
+        )
+        .run(id);
     const next =
       intervalSeconds && task.status === 'completed'
         ? Date.now() + intervalSeconds * 1000
@@ -204,7 +309,7 @@ export class Store {
         );
       const task = this.db
         .prepare(
-          "SELECT * FROM tasks WHERE status='queued' OR (status='completed' AND nextRunAt IS NOT NULL AND nextRunAt<=?) ORDER BY createdAt LIMIT 1",
+          "SELECT * FROM tasks WHERE status='queued' OR (status IN ('completed','scheduled','failed') AND nextRunAt IS NOT NULL AND nextRunAt<=?) ORDER BY CASE status WHEN 'queued' THEN 0 ELSE 1 END, COALESCE(nextRunAt, createdAt) LIMIT 1",
         )
         .get(now) as unknown as Task | undefined;
       if (!task) return null;
@@ -213,7 +318,7 @@ export class Store {
         .prepare(
           "UPDATE tasks SET status='running', lease=?, leaseUntil=?, nextRunAt=NULL, error=NULL, updatedAt=? WHERE id=?",
         )
-        .run(lease, now + 180_000, now, task.id);
+        .run(lease, now + this.leaseMs, now, task.id);
       this.db
         .prepare(
           "INSERT INTO runs VALUES (?, ?, 'running', ?, NULL, NULL, NULL)",
@@ -236,15 +341,16 @@ export class Store {
           "UPDATE runs SET status='completed', finishedAt=?, result=? WHERE id=?",
         )
         .run(now, JSON.stringify(result), claim.lease);
+      const next = task.cron
+        ? this.nextRun(task, now)
+        : task.intervalSeconds
+          ? now + task.intervalSeconds * 1000
+          : null;
       this.db
         .prepare(
-          "UPDATE tasks SET status='completed', lease=NULL, leaseUntil=NULL, updatedAt=?, nextRunAt=? WHERE id=?",
+          'UPDATE tasks SET status=?, lease=NULL, leaseUntil=NULL, updatedAt=?, nextRunAt=? WHERE id=?',
         )
-        .run(
-          now,
-          task.intervalSeconds ? now + task.intervalSeconds * 1000 : null,
-          claim.id,
-        );
+        .run(task.cron ? 'scheduled' : 'completed', now, next, claim.id);
       this.event(
         claim.id,
         claim.lease,
@@ -260,21 +366,29 @@ export class Store {
       if (this.owns(claim)) this.invalidate(claim, 'queued', reason);
     });
   }
-  fail(claim: Claim, error: string) {
+  fail(claim: Claim, error: string, now = Date.now()) {
     this.transaction(() => {
       if (!this.owns(claim)) return;
-      const now = Date.now();
       this.db
         .prepare(
           "UPDATE runs SET status='failed', finishedAt=?, error=? WHERE id=?",
         )
         .run(now, error, claim.lease);
+      const task = this.task(claim.id)!;
+      // A failed routine keeps its schedule; one bad morning should not stop it.
+      const next = task.cron ? this.nextRun(task, now) : null;
       this.db
         .prepare(
-          "UPDATE tasks SET status='failed', lease=NULL, leaseUntil=NULL, error=?, updatedAt=? WHERE id=?",
+          "UPDATE tasks SET status='failed', lease=NULL, leaseUntil=NULL, error=?, updatedAt=?, nextRunAt=? WHERE id=?",
         )
-        .run(error, now, claim.id);
+        .run(error, now, next, claim.id);
       this.event(claim.id, claim.lease, error);
+      if (next)
+        this.event(
+          claim.id,
+          null,
+          `Routine continues. Next run ${describeNextRun(next, task.timezone ?? null)}.`,
+        );
     });
   }
   memories(): Memory[] {
