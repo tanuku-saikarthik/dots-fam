@@ -1,14 +1,15 @@
 <div align="center">
 
-# OpenDots
+# Dots Fam
 
 ### Always-on AI coworkers that move between text, calls, and Slack.
 
-**An open-source template for persistent AI agents, each with its own computer. Available on Web and Mobile.**
+**An always-on team of AI agents: a Chief of Staff who delegates, specialists with their own models and computers, routines, webhooks, and approval before anything irreversible.**
+
+Built on [OpenDots](https://github.com/CopilotKit/OpenDots) by CopilotKit (MIT).
 
 Built with [CopilotKit](https://github.com/CopilotKit/CopilotKit) and [AG-UI](https://docs.ag-ui.com/introduction). · [Get started](#get-started) · [Overview](#overview) · [Architecture](#architecture) · [Status](#development-status) · [Contributing](CONTRIBUTING.md)
 
-[![CI](https://github.com/CopilotKit/OpenDots/actions/workflows/ci.yml/badge.svg)](https://github.com/CopilotKit/OpenDots/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 ![Alpha](https://img.shields.io/badge/status-alpha-orange.svg)
 
@@ -32,9 +33,9 @@ https://github.com/user-attachments/assets/4c74fe7d-ecdd-42dd-95da-5d34f9b9576e
 
 _Ask → browse → approve → save. A live computer view and a human review card appear right in chat, then the approved draft becomes an editable Space page. Enlarged for readability; idle time is trimmed and playback is accelerated._
 
-## This fork: an always-on team
+## What Dots Fam adds
 
-This fork adds the "team" layer on top of the template, following the always-on AI coworkers pattern:
+Dots Fam adds a "team" layer on top of the OpenDots template, following the always-on AI coworkers pattern:
 
 - **Model per Dot.** OpenAI, Anthropic, or OpenRouter, written as `provider:model`.
 - **Chief of Staff delegation.** One Dot hands self-contained briefs to specialists in parallel. Each specialist runs on its own model and computer, sees only its brief, and returns a deliverable that the Chief verifies and merges.
@@ -165,8 +166,8 @@ You configure the Intelligence project, model provider, and channel connection f
 Use **Node.js 24** and **npm**:
 
 ```sh
-git clone https://github.com/CopilotKit/OpenDots.git
-cd OpenDots
+git clone https://github.com/tanuku-saikarthik/dots-fam.git
+cd dots-fam
 npm ci
 cp .env.example .env
 npm run dev

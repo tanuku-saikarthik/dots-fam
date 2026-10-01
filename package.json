@@ -1,7 +1,7 @@
 {
-  "name": "opendots",
+  "name": "dots-fam",
   "version": "0.1.0",
-  "description": "A self-hosted personal-agent template with CopilotKit Intelligence, Threads, and Channels.",
+  "description": "An always-on team of AI agents built on CopilotKit's OpenDots template.",
   "main": "index.js",
   "directories": {
     "doc": "docs",
@@ -76,7 +76,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CopilotKit/OpenDots.git"
+    "url": "git+https://github.com/tanuku-saikarthik/dots-fam.git"
   },
   "overrides": {
     "undici": "^6.29.0"
