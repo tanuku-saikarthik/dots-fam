@@ -16,14 +16,9 @@ from .web import web_tools
 
 def build_tools(ctx: DotContext) -> list[BaseTool]:
     tools: list[BaseTool] = [*page_tools(ctx)]
-    computer_ready = bool(ctx.computers and ctx.computers.enabled_for(ctx.dot))
-    if (
-        ctx.dot.get("research_allowed")
-        and ctx.store.flags()["research_allowed"]
-        and not computer_ready
-    ):
+    if ctx.dot.get("research_allowed") and ctx.store.flags()["research_allowed"]:
         tools += web_tools(ctx)
-    if computer_ready and ctx.computers:
+    if ctx.computers and ctx.computers.enabled_for(ctx.dot):
         tools += ctx.computers.tools(ctx)
     tools += team_tools(ctx)
     slack = ctx.extra.get("slack")
@@ -41,5 +36,8 @@ def approval_reason(ctx: DotContext, tool: BaseTool | None, args: dict) -> str |
         return str(metadata.get("reason") or f"{tool.name} changes something outside Dots Fam")
     classify = metadata.get("classify")
     if callable(classify):
-        return classify(args)
+        try:
+            return classify(args)
+        except Exception:  # noqa: BLE001 - when unsure, ask the owner
+            return f"{tool.name} may change something outside Dots Fam"
     return None

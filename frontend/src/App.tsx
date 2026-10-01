@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity as ActivityIcon, CalendarClock, FileText, Menu, MessageSquare, Plus, Settings2 } from 'lucide-react';
+import { Activity as ActivityIcon, CalendarClock, FileText, Menu, MessageSquare, Monitor, Plus, Settings2 } from 'lucide-react';
 import { api, ApiError, setToken, type Activity, type AppState } from './api';
 import { DotMark } from './components/DotMark';
 import { TeamLine } from './components/TeamLine';
 import { ActivityView } from './views/ActivityView';
 import { ChatView } from './views/ChatView';
+import { ComputerView } from './views/ComputerView';
 import { PagesView } from './views/PagesView';
 import { RoutinesView } from './views/RoutinesView';
 import { TeamView } from './views/TeamView';
@@ -93,7 +94,7 @@ export function App() {
 
   const chatDot = useMemo(() => {
     if (!state) return undefined;
-    if (view === 'chat' && route[1]) return state.dots.find((d) => d.id === route[1]);
+    if ((view === 'chat' || view === 'computer') && route[1]) return state.dots.find((d) => d.id === route[1]);
     return state.dots.find((d) => d.can_delegate) ?? state.dots[0];
   }, [state, view, route]);
 
@@ -137,6 +138,9 @@ export function App() {
           </button>
           <button aria-current={view === 'pages' ? 'page' : undefined} onClick={() => go('/pages')}>
             <FileText size={17} /> Pages
+          </button>
+          <button aria-current={view === 'computer' ? 'page' : undefined} onClick={() => go(`/computer/${chatDot?.id ?? ''}`)}>
+            <Monitor size={17} /> Computers
           </button>
           <button aria-current={view === 'team' ? 'page' : undefined} onClick={() => go('/team')}>
             <Settings2 size={17} /> Team and setup
@@ -197,6 +201,8 @@ export function App() {
           <RoutinesView state={state} activity={activity} reload={refreshAll} threadId={route[1]} />
         ) : view === 'pages' ? (
           <PagesView state={state} spaceId={route[1]} pageId={route[2]} navigate={go} />
+        ) : view === 'computer' ? (
+          <ComputerView state={state} dotId={route[1]} navigate={go} />
         ) : view === 'team' ? (
           <TeamView state={state} onChanged={refreshAll} />
         ) : chatDot ? (
@@ -208,6 +214,7 @@ export function App() {
             onThread={(id) => go(id ? `/chat/${chatDot.id}/${id}` : `/chat/${chatDot.id}`)}
             onRefresh={refresh}
             onRoutine={(id) => go(`/routines/${id}`)}
+            onComputer={() => go(`/computer/${chatDot.id}`)}
           />
         ) : (
           <div className="empty">

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
@@ -67,7 +67,6 @@ class DotPatch(BaseModel):
     space_id: str | None = None
     space_ids: list[str] | None = None
     color: str | None = None
-    computer: dict[str, bool] | None = None
 
     _check_model = field_validator("model")(lambda cls, v: _model_ref(v) if v is not None else None)
 
@@ -163,6 +162,22 @@ class TeamInstall(BaseModel):
 
 class BlueprintInstall(BaseModel):
     timezone: str | None = None
+
+
+class ComputerPatch(BaseModel):
+    enabled: bool | None = None
+    browser: bool | None = None
+    files: bool | None = None
+    shell: bool | None = None
+
+
+class HumanAction(BaseModel):
+    x: float | None = Field(None, ge=0, le=1280)
+    y: float | None = Field(None, ge=0, le=800)
+    text: str | None = Field(None, max_length=16_000)
+    key: str | None = Field(None, max_length=60)
+    dy: int | None = Field(None, ge=-20_000, le=20_000)
+    url: str | None = Field(None, max_length=2048)
 
 
 # ---- app --------------------------------------------------------------------
@@ -280,6 +295,9 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
 
     @api.delete("/dots/{dot_id}")
     async def delete_dot(dot_id: str) -> dict[str, bool]:
+        dot = store.dot(dot_id)
+        if runtime.computers is not None:
+            await runtime.computers.stop(dot)
         store.delete_dot(dot_id)
         return {"ok": True}
 
@@ -516,6 +534,101 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
     async def remove_memory(memory_id: str) -> dict[str, bool]:
         store.delete_memory(memory_id)
         return {"ok": True}
+
+    # -- computers ------------------------------------------------------------------
+    def computers() -> Any:
+        if runtime.computers is None:
+            raise HTTPException(
+                404, "Computers are off. Set COMPUTER_DRIVER=docker (or local) in .env and restart."
+            )
+        return runtime.computers
+
+    async def computer_call(
+        dot_id: str, method: str, path: str, body: Any = None, **kw: Any
+    ) -> Any:
+        from .computers import ComputerError
+
+        try:
+            return await computers().call(store.dot(dot_id), method, path, body, **kw)
+        except ComputerError as error:
+            raise HTTPException(409, str(error)) from error
+
+    @api.get("/computers/{dot_id}")
+    async def computer_status(dot_id: str) -> dict[str, Any]:
+        dot = store.dot(dot_id)
+        if runtime.computers is None:
+            return {"available": False, "driver": settings.computer_driver}
+        return {"available": True, **await runtime.computers.status(dot)}
+
+    @api.patch("/computers/{dot_id}")
+    async def computer_permissions(dot_id: str, body: ComputerPatch) -> dict[str, Any]:
+        manager = computers()
+        dot = store.dot(dot_id)
+        before = manager.permissions(dot)
+        merged = {**(dot.get("computer") or {}), **body.model_dump(exclude_none=True)}
+        dot = store.update_dot(dot_id, computer=merged)
+        after = manager.permissions(dot)
+        if not after["enabled"] or after["shell"] != before["shell"]:
+            await manager.stop(dot)  # shell access is fixed when a computer starts
+        return {"available": True, **await manager.status(dot)}
+
+    @api.post("/computers/{dot_id}/{verb}")
+    async def computer_power(dot_id: str, verb: Literal["start", "stop"]) -> dict[str, Any]:
+        from .computers import ComputerError
+
+        manager, dot = computers(), store.dot(dot_id)
+        try:
+            if verb == "start":
+                await manager.ensure(dot)
+            else:
+                await manager.stop(dot)
+        except ComputerError as error:
+            raise HTTPException(409, str(error)) from error
+        return {"available": True, **await manager.status(dot)}
+
+    @api.get("/computers/{dot_id}/screen")
+    async def computer_screen(dot_id: str) -> Response:
+        image = await computer_call(
+            dot_id, "GET", "/browser/screenshot", start=False, actor="human"
+        )
+        return Response(image, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @api.post("/computers/{dot_id}/control/{verb}")
+    async def computer_control(dot_id: str, verb: Literal["take", "release"]) -> dict[str, Any]:
+        result = await computer_call(dot_id, "POST", f"/control/{verb}", start=False, actor="human")
+        store.add_event(
+            f"computer:{dot_id}",
+            "computer",
+            "You took control" if verb == "take" else "You handed control back",
+        )
+        return result
+
+    @api.post("/computers/{dot_id}/human/{action}")
+    async def computer_human(
+        dot_id: str,
+        action: Literal["click", "type", "key", "scroll", "navigate"],
+        body: HumanAction,
+    ) -> dict[str, Any]:
+        payload = {
+            "click": {"x": body.x, "y": body.y},
+            "type": {"text": body.text},
+            "key": {"key": body.key},
+            "scroll": {"dy": body.dy},
+            "navigate": {"url": body.url},
+        }[action]
+        if any(value is None for value in payload.values()):
+            raise HTTPException(400, f"Missing fields for {action}.")
+        return await computer_call(
+            dot_id, "POST", f"/human/{action}", payload, start=False, actor="human"
+        )
+
+    @api.get("/computers/{dot_id}/files")
+    async def computer_files(dot_id: str, path: str = "") -> dict[str, Any]:
+        return await computer_call(dot_id, "GET", "/files", start=False, params={"path": path})
+
+    @api.get("/computers/{dot_id}/files/read")
+    async def computer_file(dot_id: str, path: str) -> dict[str, Any]:
+        return await computer_call(dot_id, "GET", "/files/read", start=False, params={"path": path})
 
     app.include_router(api)
 

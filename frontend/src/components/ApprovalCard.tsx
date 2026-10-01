@@ -7,9 +7,9 @@ const TOOL_LABELS: Record<string, string> = {
   send_email: 'Send an email',
   slack_post: 'Post to Slack',
   computer_click: 'Click in the browser',
-  computer_type: 'Submit in the browser',
-  computer_key: 'Press a key in the browser',
-  computer_exec: 'Run a shell command',
+  computer_type: 'Submit a form in the browser',
+  computer_press: 'Press Enter in the browser',
+  computer_shell: 'Run a shell command',
 };
 
 export function ApprovalCard({

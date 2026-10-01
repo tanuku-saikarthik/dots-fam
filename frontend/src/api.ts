@@ -134,6 +134,21 @@ export interface Activity {
   triggers: Trigger[];
   running: { thread_id: string; run_id: string; source: string }[];
 }
+export interface ComputerStatus {
+  available: boolean;
+  driver: string;
+  running?: boolean;
+  permissions?: { enabled: boolean; browser: boolean; files: boolean; shell: boolean };
+  url?: string | null;
+  holder?: 'agent' | 'human';
+  browser?: boolean;
+  activity?: { id: number; text: string; created_at: number }[];
+}
+export interface FileEntry {
+  name: string;
+  dir: boolean;
+  size: number | null;
+}
 export interface Page {
   id: string;
   space_id: string;
@@ -195,6 +210,13 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
     throw new ApiError(message, response.status);
   }
   return data as T;
+}
+
+/** Binary GET (screenshots). Resolves to undefined when there is nothing to show. */
+export async function apiBlob(path: string): Promise<Blob | undefined> {
+  const response = await fetch(`/api${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) return undefined;
+  return response.blob();
 }
 
 export function streamUrl(threadId: string) {

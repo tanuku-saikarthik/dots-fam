@@ -53,6 +53,14 @@ def system_prompt(ctx: DotContext) -> str:
             "conflicts, and merge them into one answer. Do quick work yourself.\n"
             f"Roster:\n{roster_text(ctx)}"
         )
+    if ctx.computers and ctx.computers.enabled_for(dot):
+        parts.append(
+            "You have your own computer: a persistent browser where logins are kept, and a private "
+            "workspace for files. To use a site: computer_open, then computer_snapshot, then act on refs "
+            "from that latest snapshot. Snapshots go stale after every click or page change; take a new "
+            "one before the next step. If the owner has taken control, wait and tell them what you need. "
+            "Never type passwords or payment details the owner did not give you for that site."
+        )
     if ctx.reversible:
         parts.append(REVERSIBILITY)
     parts.append(

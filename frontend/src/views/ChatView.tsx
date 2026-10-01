@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AlertTriangle, ArrowUp, CircleCheck, CircleDot, Clock, Square, Trash2, Wrench } from 'lucide-react';
+import { AlertTriangle, ArrowUp, CircleCheck, CircleDot, Clock, Monitor, Square, Trash2, Wrench } from 'lucide-react';
 import {
   api,
   streamUrl,
@@ -41,6 +41,17 @@ const LABELS: Record<string, string> = {
   update_page: 'Updated page',
   read_web_page: 'Read web page',
   delegate_tasks: 'Handed off',
+  computer_open: 'Opened in browser',
+  computer_snapshot: 'Looked at the page',
+  computer_read: 'Read the page',
+  computer_click: 'Clicked',
+  computer_type: 'Filled in a field',
+  computer_press: 'Pressed a key',
+  computer_scroll: 'Scrolled',
+  computer_list_files: 'Listed files',
+  computer_read_file: 'Read file',
+  computer_write_file: 'Saved file',
+  computer_shell: 'Ran a command',
 };
 
 function argLabel(args: Record<string, unknown>) {
@@ -105,6 +116,7 @@ export function ChatView({
   onThread,
   onRefresh,
   onRoutine,
+  onComputer,
 }: {
   state: AppState;
   dot: Dot;
@@ -112,6 +124,7 @@ export function ChatView({
   onThread: (id: string | undefined) => void;
   onRefresh: () => void;
   onRoutine: (threadId: string) => void;
+  onComputer: () => void;
 }) {
   const [detail, setDetail] = useState<ThreadDetail>();
   const [live, setLive] = useState<{ text: string; steps: RunEvent[] } | null>(null);
@@ -209,6 +222,11 @@ export function ChatView({
             {dot.title || 'Specialist'}, running {dot.model ?? state.setup.default_model ?? 'no model yet'}
           </p>
         </div>
+        {dot.computer?.enabled && state.setup.computer_driver !== 'none' && (
+          <button className="button ghost" onClick={onComputer} title={`Watch ${dot.name}'s browser`}>
+            <Monitor size={16} /> Computer
+          </button>
+        )}
         {threadId && (
           <>
             <button className="button ghost" onClick={() => onRoutine(threadId)} title="Run this conversation on a schedule">
