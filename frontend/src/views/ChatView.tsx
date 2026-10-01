@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AlertTriangle, ArrowUp, CircleCheck, CircleDot, Clock, Monitor, Square, Trash2, Wrench } from 'lucide-react';
+import { AlertTriangle, ArrowUp, CircleCheck, CircleDot, Clock, Monitor, Phone, Square, Trash2, Wrench } from 'lucide-react';
 import {
   api,
   streamUrl,
@@ -12,6 +12,7 @@ import {
   type ThreadDetail,
 } from '../api';
 import { ApprovalCard } from '../components/ApprovalCard';
+import { CallBar } from '../components/CallBar';
 import { DotMark } from '../components/DotMark';
 
 const STARTERS: Record<string, string[]> = {
@@ -133,6 +134,7 @@ export function ChatView({
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [calling, setCalling] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -160,7 +162,10 @@ export function ChatView({
     const source = new EventSource(streamUrl(threadId));
     source.onmessage = (message) => {
       const event = JSON.parse(message.data) as RunEvent;
-      if (event.type === 'run.started') setLive({ text: '', steps: [] });
+      if (event.type === 'run.started') {
+        setLive({ text: '', steps: [] });
+        void load(); // shows messages that arrived by voice, Slack or a routine
+      }
       else if (event.type === 'message.delta')
         setLive((current) => ({ text: (current?.text ?? '') + String(event.delta ?? ''), steps: current?.steps ?? [] }));
       else if (event.type === 'tool.started' || event.type === 'tool.finished')
@@ -224,6 +229,11 @@ export function ChatView({
             {dot.title || 'Specialist'}, running {dot.model ?? state.setup.default_model ?? 'no model yet'}
           </p>
         </div>
+        {state.setup.voice !== 'off' && !calling && (
+          <button className="button ghost" onClick={() => setCalling(true)} title={`Talk to ${dot.name}`}>
+            <Phone size={16} /> Call
+          </button>
+        )}
         {dot.computer?.enabled && state.setup.computer_driver !== 'none' && (
           <button className="button ghost" onClick={onComputer} title={`Watch ${dot.name}'s browser`}>
             <Monitor size={16} /> Computer
@@ -333,6 +343,7 @@ export function ChatView({
           {error && <p className="error">{error}</p>}
         </div>
       </div>
+      {calling && <CallBar dot={dot} threadId={threadId} onThread={(id) => onThread(id)} onEnd={() => setCalling(false)} />}
       <div className="composer">
         <form
           onSubmit={(e) => {

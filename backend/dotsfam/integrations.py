@@ -15,6 +15,10 @@ async def attach_integrations(runtime: Runtime) -> None:
         from .computers import ComputerManager
 
         runtime.attach_computers(ComputerManager.create(runtime.store, settings))
+    if settings.voice_stack != "off":
+        from .voice import VoiceManager  # Pipecat itself is imported only when a call starts
+
+        runtime.attach_voice(VoiceManager(runtime))
     if settings.slack_bot_token and settings.slack_app_token:
         try:
             from .slack import SlackBridge

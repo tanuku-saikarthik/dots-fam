@@ -76,6 +76,10 @@ class RunManager:
     def on_finished(self, listener: Callable[[RunOutcome], Any]) -> None:
         self._listeners.append(listener)
 
+    def off_finished(self, listener: Callable[[RunOutcome], Any]) -> None:
+        if listener in self._listeners:
+            self._listeners.remove(listener)
+
     def busy(self, thread_id: str) -> bool:
         return thread_id in self._active
 
@@ -156,6 +160,7 @@ class RunManager:
             worker=worker,
             cancelled=lambda: active.cancelled,
             extra=self.extra,
+            source=active.source,
         )
 
     async def _execute(self, active: ActiveRun, payload: Any) -> None:

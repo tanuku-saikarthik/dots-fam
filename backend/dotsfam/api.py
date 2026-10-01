@@ -171,6 +171,23 @@ class ComputerPatch(BaseModel):
     shell: bool | None = None
 
 
+class VoiceOffer(BaseModel):
+    sdp: str = Field(min_length=10, max_length=200_000)
+    type: Literal["offer"] = "offer"
+    pc_id: str | None = Field(None, max_length=200)
+    restart_pc: bool = False
+    thread_id: str | None = None
+
+
+class VoiceIce(BaseModel):
+    pc_id: str = Field(max_length=200)
+    candidates: list[dict[str, Any]] = Field(max_length=50)
+
+
+class VoiceHangup(BaseModel):
+    pc_id: str = Field(max_length=200)
+
+
 class HumanAction(BaseModel):
     x: float | None = Field(None, ge=0, le=1280)
     y: float | None = Field(None, ge=0, le=800)
@@ -240,7 +257,7 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
             "timezone": settings.default_timezone,
             "computer_driver": settings.computer_driver,
             "slack": bool(runtime.slack),
-            "voice": settings.voice_stack,
+            "voice": settings.voice_stack if runtime.voice is not None else "off",
         }
 
     # -- overview ---------------------------------------------------------------
@@ -614,6 +631,45 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
     @api.get("/computers/{dot_id}/files/read")
     async def computer_file(dot_id: str, path: str) -> dict[str, Any]:
         return await computer_call(dot_id, "GET", "/files/read", start=False, params={"path": path})
+
+    # -- voice ------------------------------------------------------------------------
+    def voice() -> Any:
+        if runtime.voice is None:
+            raise HTTPException(404, "Voice calls are off on this server.")
+        return runtime.voice
+
+    @api.get("/voice")
+    async def voice_status() -> dict[str, Any]:
+        if runtime.voice is None:
+            return {"available": False, "reason": "Voice calls are off (VOICE_STACK=off)."}
+        return runtime.voice.status()
+
+    @api.post("/voice/{dot_id}/offer")
+    async def voice_offer(dot_id: str, body: VoiceOffer) -> dict[str, Any]:
+        from .voice import VoiceUnavailable
+
+        if store.flags()["paused"]:
+            raise Stopped("The team is paused.")
+        try:
+            return await voice().offer(
+                dot_id,
+                body.sdp,
+                body.type,
+                thread_id=body.thread_id,
+                pc_id=body.pc_id,
+                restart_pc=body.restart_pc,
+            )
+        except VoiceUnavailable as error:
+            raise HTTPException(503, str(error)) from error
+
+    @api.patch("/voice/ice")
+    async def voice_ice(body: VoiceIce) -> dict[str, bool]:
+        await voice().ice(body.pc_id, body.candidates)
+        return {"ok": True}
+
+    @api.post("/voice/hangup")
+    async def voice_hangup(body: VoiceHangup) -> dict[str, bool]:
+        return {"ok": await voice().hangup(body.pc_id)}
 
     app.include_router(api)
 

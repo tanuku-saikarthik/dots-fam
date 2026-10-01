@@ -78,6 +78,9 @@ class Runtime:
         self.computers = manager
         self.runs.computers = manager
 
+    def attach_voice(self, voice: Any) -> None:
+        self.voice = voice
+
     def attach_slack(self, slack: Any) -> None:
         self.slack = slack
         self.runs.extra["slack"] = slack
@@ -99,6 +102,8 @@ class Runtime:
             await self.slack.stop()
         if self.computers:
             await self.computers.close()
+        if self.voice:
+            await self.voice.close()
 
 
 @contextlib.asynccontextmanager

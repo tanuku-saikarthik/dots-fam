@@ -30,7 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 computer = ["playwright>=1.45", "docker>=7.0"]
 slack = ["slack-bolt>=1.20", "aiohttp>=3.9"]
-voice = ["pipecat-ai[webrtc,silero,whisper,kokoro]>=1.0"]
+voice = ["pipecat-ai[webrtc,silero,whisper,kokoro]>=1.12,<2"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
 
 [project.scripts]

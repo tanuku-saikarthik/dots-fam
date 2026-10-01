@@ -1092,6 +1092,68 @@ input.editor-title {
   flex-wrap: nowrap;
 }
 
+/* ---------- calls ---------- */
+.call-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 28px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  flex-wrap: wrap;
+}
+.call-bar.live {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-bg);
+}
+.call-bar p {
+  margin-top: 2px;
+}
+.call-clock {
+  font-variant-numeric: tabular-nums;
+  margin-right: 10px;
+  color: var(--ink);
+}
+.call-dot {
+  position: relative;
+  display: inline-grid;
+  border-radius: 50%;
+}
+.call-dot.speaking::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid var(--ok);
+  animation: call-pulse 1s ease-out infinite;
+}
+@keyframes call-pulse {
+  from {
+    opacity: 1;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .call-dot.speaking::after {
+    animation: none;
+  }
+}
+.button.hangup {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--surface);
+}
+.button.hangup:hover:not(:disabled) {
+  background: var(--bad);
+  opacity: 0.9;
+}
+
 /* ---------- lock screen ---------- */
 .lock {
   display: grid;
@@ -1143,6 +1205,9 @@ input.editor-title {
   .composer {
     padding-left: 16px;
     padding-right: 16px;
+  }
+  .call-bar {
+    margin: 0 16px;
   }
   .pages-layout,
   .team-grid,

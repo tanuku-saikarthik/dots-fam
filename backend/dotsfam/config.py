@@ -48,11 +48,17 @@ class Settings(BaseSettings):
     slack_dot: str | None = None
     slack_notify_channel: str | None = None
 
-    # Voice: local (Pipecat + Whisper + Kokoro) | openai | off
+    # Voice calls (Pipecat over WebRTC). local = Whisper + Kokoro on this machine (open models);
+    # openai = OpenAI speech-to-text and text-to-speech; off = no calls. The Dot is the brain either way.
     voice_stack: str = "local"
-    voice_whisper_model: str = "small"
+    voice_language: str = "en"
+    voice_whisper_model: str = "large-v3-turbo"
+    voice_whisper_device: str = "auto"
     voice_kokoro_voice: str = "af_heart"
-    openai_realtime_model: str = "gpt-realtime"
+    voice_openai_stt_model: str = "gpt-4o-transcribe"
+    voice_openai_tts_model: str = "gpt-4o-mini-tts"
+    voice_openai_voice: str = "alloy"
+    voice_ice_servers: str = "stun:stun.l.google.com:19302"
 
     @field_validator("default_timezone")
     @classmethod
@@ -72,6 +78,10 @@ class Settings(BaseSettings):
     @property
     def checkpoint_path(self) -> Path:
         return self.data_dir / "checkpoints.sqlite"
+
+    @property
+    def ice_servers(self) -> list[str]:
+        return [item.strip() for item in self.voice_ice_servers.split(",") if item.strip()]
 
     @property
     def slack_user_ids(self) -> list[str]:
