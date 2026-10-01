@@ -32,6 +32,18 @@ https://github.com/user-attachments/assets/4c74fe7d-ecdd-42dd-95da-5d34f9b9576e
 
 _Ask → browse → approve → save. A live computer view and a human review card appear right in chat, then the approved draft becomes an editable Space page. Enlarged for readability; idle time is trimmed and playback is accelerated._
 
+## This fork: an always-on team
+
+This fork adds the "team" layer on top of the template, following the always-on AI coworkers pattern:
+
+- **Model per Dot.** OpenAI, Anthropic, or OpenRouter, written as `provider:model`.
+- **Chief of Staff delegation.** One Dot hands self-contained briefs to specialists in parallel. Each specialist runs on its own model and computer, sees only its brief, and returns a deliverable that the Chief verifies and merges.
+- **Reversibility Law.** Dots read, research, and draft freely. Sending, submitting, publishing, paying, deleting, or pushing waits in an approvals inbox.
+- **Routines and triggers.** Cron schedules with time zones, and signed webhooks from GitHub, Linear, or any script.
+- **One-click team.** Vance (Chief of Staff), Mara, Cole, Rina, and Owen, a Team HQ space, and four blueprints.
+
+See [docs/TEAM.md](docs/TEAM.md) for setup, the roster, and limits.
+
 ## Overview
 
 OpenDots is a starting point for building your own agent workspace. Clone it, define your Dots, connect your services, and adapt the interface and tools to your needs.

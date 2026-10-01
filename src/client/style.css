@@ -3993,3 +3993,332 @@ h3 {
   font-size: 14px;
   color: #c9e8dd;
 }
+
+/* Team: approvals, delegation, webhooks, installer */
+.status.scheduled,
+.status.queued,
+.status.pending {
+  color: #788bc3;
+  background: #edf0f9;
+}
+.status.approved,
+.status.used {
+  color: #7a967e;
+  background: #eff4ee;
+}
+.status.declined,
+.status.cancelled,
+.status.expired {
+  color: #9295a2;
+  background: #f3f3f5;
+}
+.activity-tabs {
+  margin: 0 0 18px;
+  flex-wrap: wrap;
+}
+.activity-tabs button {
+  border-radius: 7px;
+}
+.team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.team-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  min-width: 0;
+}
+.team-card > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.team-card > header > div {
+  flex: 1;
+  min-width: 0;
+}
+.team-card > header strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.team-card > header span:not(.status) {
+  display: block;
+  color: #9ea2ad;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.team-card > p {
+  font-size: 12px;
+  color: #6f7380;
+  line-height: 1.6;
+  margin: 10px 0 0;
+}
+.team-card .task-controls {
+  margin: 14px 0 0;
+  align-items: center;
+}
+.team-card .task-controls small {
+  font-size: 10px;
+}
+.team-card.approval.pending {
+  border-color: #cfd6f2;
+  box-shadow: 0 1px 0 #e8ecfa;
+}
+.team-details {
+  background: #f7f7f9;
+  border: 1px solid #eeeef2;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 12px 0 0;
+  font:
+    11px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow: auto;
+}
+.team-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #f1f2f8;
+  color: #7f8bb8;
+  flex-shrink: 0;
+}
+.delegation-tree {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0 0 0 16px;
+  border-left: 2px solid #eceef6;
+}
+.delegation-tree > li + li {
+  margin-top: 6px;
+}
+.delegation-row {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 8px 10px;
+  gap: 10px;
+}
+.delegation-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.delegation-name small {
+  display: block;
+  font-size: 10px;
+  color: #a1a5b0;
+  font-weight: 400;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.delegation-row .rotated {
+  transform: rotate(90deg);
+}
+.delegation-body {
+  padding: 4px 4px 8px 10px;
+}
+.delegation-body h4 {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #a0a4b0;
+  margin: 14px 0 0;
+}
+.delegation-body p {
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+.delegation-events {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 11px;
+  color: #6f7380;
+}
+.delegation-events li {
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
+.delegation-events time {
+  color: #b0b3bd;
+  margin-right: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.toggle-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #777b88;
+}
+.toggle-inline input {
+  accent-color: #8799d4;
+}
+.hook-url {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.hook-url code {
+  font:
+    11px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  background: #f5f5f8;
+  border: 1px solid #ececf2;
+  border-radius: 6px;
+  padding: 6px 8px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+}
+.hook-url.secret code {
+  background: #fbf7ec;
+  border-color: #f0e6cc;
+}
+.hook-url small {
+  flex-basis: 100%;
+  font-size: 10px;
+  color: #a39978;
+}
+.new-trigger {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.new-trigger > strong {
+  font-size: 13px;
+}
+.new-trigger p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.new-trigger input,
+.new-trigger select,
+.new-trigger textarea {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 12px;
+  background: #fff;
+  width: 100%;
+}
+.new-trigger > button {
+  align-self: flex-start;
+}
+.chief-badge {
+  margin-left: auto;
+  font-size: 9px;
+  color: #7482af;
+  background: #eeeff7;
+  border-radius: 5px;
+  padding: 2px 5px;
+  font-weight: 600;
+}
+.nav-item small.approval-count,
+.nav-item.active small.approval-count {
+  background: #7689d3;
+  color: #fff;
+  border-radius: 9px;
+  padding: 2px 7px;
+  font-weight: 600;
+}
+.approval-pill {
+  font-size: 12px;
+  color: #5269bb;
+  background: #eef1fb;
+  border-color: #d9dff5;
+  padding: 7px 11px;
+}
+.team-modal {
+  max-width: 560px;
+}
+.team-modal input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+}
+.roster-preview {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px;
+  font-size: 11px;
+  color: #777b88;
+}
+.roster-preview li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.roster-preview strong {
+  color: #333641;
+  font-weight: 550;
+}
+.team-subhead {
+  font-size: 15px;
+  margin: 30px 0 4px;
+}
+.blueprint-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.blueprint-list .team-card > header > button {
+  font-size: 11px;
+  padding: 7px 11px;
+  flex-shrink: 0;
+}
+.blueprint-result ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+  color: #6f7380;
+  line-height: 1.6;
+}
+@media (max-width: 700px) {
+  .team-card > header {
+    flex-wrap: wrap;
+  }
+  .approval-pill {
+    font-size: 11px;
+    padding: 6px 8px;
+  }
+}
+.team-card > header > .mascot.small {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+.delegation-row > .mascot.small {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.team-card .task-controls button.primary {
+  color: #fff;
+}

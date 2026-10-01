@@ -47,6 +47,26 @@ export function WorkspaceDialog({
     dialog.type === 'dot' ? (dialog.dot?.spaceId ?? dialog.spaceId) : '',
   );
   const [interval, setInterval] = useState('86400');
+  const [scheduleMode, setScheduleMode] = useState<'interval' | 'cron'>('cron');
+  const [cron, setCron] = useState('30 8 * * *');
+  const [timezone, setTimezone] = useState(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+      return 'UTC';
+    }
+  });
+  const [model, setModel] = useState(
+    dialog.type === 'dot' ? (dialog.dot?.model ?? '') : '',
+  );
+  const [canDelegate, setCanDelegate] = useState(
+    dialog.type === 'dot' ? (dialog.dot?.canDelegate ?? false) : false,
+  );
+  const [reversible, setReversible] = useState(
+    dialog.type === 'dot'
+      ? (dialog.dot?.approvalMode ?? 'reversible') === 'reversible'
+      : true,
+  );
   const [learningContainer, setLearningContainer] = useState(
     dialog.type === 'dot' ? (dialog.dot?.learningContainerId ?? '') : '',
   );
@@ -142,6 +162,9 @@ export function WorkspaceDialog({
                 memoryAllowed: memory,
                 learningContainerId: learningContainer.trim() || null,
                 skillDeliveryEnabled: skillDelivery,
+                model: model.trim(),
+                canDelegate,
+                approvalMode: reversible ? 'reversible' : 'autonomous',
               };
             }
             if (dialog.type === 'settings') {
@@ -158,11 +181,19 @@ export function WorkspaceDialog({
             }
             if (dialog.type === 'schedule') {
               path = '/tasks';
-              body = {
-                prompt: text,
-                threadId: dialog.threadId,
-                intervalSeconds: Number(interval),
-              };
+              body =
+                scheduleMode === 'cron'
+                  ? {
+                      prompt: text,
+                      threadId: dialog.threadId,
+                      cron: cron.trim(),
+                      timezone: timezone.trim(),
+                    }
+                  : {
+                      prompt: text,
+                      threadId: dialog.threadId,
+                      intervalSeconds: Number(interval),
+                    };
             }
             if (await mutate(path, method, body)) onClose();
             else
@@ -289,6 +320,79 @@ export function WorkspaceDialog({
           )}
           {dialog.type === 'dot' && (
             <fieldset className="space-access-fields">
+              <legend>Team</legend>
+              <label className="field-label" htmlFor="dot-model">
+                Model
+              </label>
+              <input
+                id="dot-model"
+                list="dot-models"
+                value={model}
+                maxLength={180}
+                placeholder={
+                  workspace.setup.defaultModel
+                    ? `Default: ${workspace.setup.defaultModel}`
+                    : 'provider:model'
+                }
+                onChange={(event) => setModel(event.target.value)}
+              />
+              <datalist id="dot-models">
+                {[
+                  workspace.setup.defaultModel,
+                  workspace.setup.workerModel,
+                  'openai:gpt-5.2',
+                  'openai:gpt-5-mini',
+                  'anthropic:claude-opus-4-5',
+                  'anthropic:claude-sonnet-4-5',
+                  'anthropic:claude-haiku-4-5',
+                  'openrouter:anthropic/claude-sonnet-4.5',
+                ]
+                  .filter(
+                    (item, index, all): item is string =>
+                      !!item && all.indexOf(item) === index,
+                  )
+                  .map((item) => (
+                    <option key={item} value={item} />
+                  ))}
+              </datalist>
+              <p className="muted">
+                Write provider:model (openai, anthropic, openrouter). Leave
+                blank for the default. Configured providers:{' '}
+                {workspace.setup.providers?.join(', ') || 'none'}.
+              </p>
+              <label className="permission-row">
+                <input
+                  type="checkbox"
+                  checked={canDelegate}
+                  onChange={(e) => setCanDelegate(e.target.checked)}
+                />
+                <span>
+                  <strong>Chief of Staff</strong>
+                  <small>
+                    May hand scoped briefs to the other Dots, in parallel, and
+                    merge their deliverables. Specialists see only the brief.
+                  </small>
+                </span>
+              </label>
+              <label className="permission-row">
+                <input
+                  type="checkbox"
+                  checked={reversible}
+                  onChange={(e) => setReversible(e.target.checked)}
+                />
+                <span>
+                  <strong>Reversibility Law</strong>
+                  <small>
+                    Read, research and draft freely. Sending, submitting,
+                    publishing, paying, deleting or pushing waits for your
+                    approval in Activity.
+                  </small>
+                </span>
+              </label>
+            </fieldset>
+          )}
+          {dialog.type === 'dot' && (
+            <fieldset className="space-access-fields">
               <legend>Automatic Learning</legend>
               <label className="field-label" htmlFor="learning-container">
                 Learning container ID
@@ -339,23 +443,95 @@ export function WorkspaceDialog({
           )}
           {dialog.type === 'schedule' && (
             <>
-              <label className="field-label" htmlFor="schedule-interval">
-                Repeat after each successful run
+              <label className="field-label" htmlFor="schedule-mode">
+                When
               </label>
               <select
-                id="schedule-interval"
-                value={interval}
-                onChange={(e) => setInterval(e.target.value)}
+                id="schedule-mode"
+                value={scheduleMode}
+                onChange={(e) =>
+                  setScheduleMode(e.target.value as 'interval' | 'cron')
+                }
               >
-                <option value="60">Every minute (testing)</option>
-                <option value="3600">Every hour</option>
-                <option value="86400">Every day</option>
-                <option value="604800">Every week</option>
+                <option value="cron">At set times (routine)</option>
+                <option value="interval">
+                  Repeat after each successful run
+                </option>
               </select>
-              <p className="muted">
-                Runs on the server in this same conversation, even with the tab
-                closed. Failed runs wait for manual retry.
-              </p>
+              {scheduleMode === 'cron' ? (
+                <>
+                  <label className="field-label" htmlFor="schedule-cron">
+                    Schedule
+                  </label>
+                  <select
+                    aria-label="Schedule preset"
+                    value={
+                      [
+                        '30 8 * * *',
+                        '0 9 * * 1-5',
+                        '0 9,13,17 * * 1-5',
+                        '0 9 * * 1',
+                        '0 * * * *',
+                      ].includes(cron)
+                        ? cron
+                        : 'custom'
+                    }
+                    onChange={(e) => {
+                      if (e.target.value !== 'custom') setCron(e.target.value);
+                    }}
+                  >
+                    <option value="30 8 * * *">Every day at 08:30</option>
+                    <option value="0 9 * * 1-5">Weekdays at 09:00</option>
+                    <option value="0 9,13,17 * * 1-5">
+                      Weekdays at 09:00, 13:00 and 17:00
+                    </option>
+                    <option value="0 9 * * 1">Mondays at 09:00</option>
+                    <option value="0 * * * *">Every hour</option>
+                    <option value="custom">Custom cron…</option>
+                  </select>
+                  <input
+                    id="schedule-cron"
+                    value={cron}
+                    maxLength={120}
+                    pattern="\S+\s+\S+\s+\S+\s+\S+\s+\S+"
+                    title="minute hour day-of-month month day-of-week"
+                    onChange={(e) => setCron(e.target.value)}
+                  />
+                  <label className="field-label" htmlFor="schedule-tz">
+                    Time zone
+                  </label>
+                  <input
+                    id="schedule-tz"
+                    value={timezone}
+                    maxLength={64}
+                    onChange={(e) => setTimezone(e.target.value)}
+                  />
+                  <p className="muted">
+                    Runs on the server in this conversation with the tab closed.
+                    A failed run is logged and the routine keeps its schedule.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <label className="field-label" htmlFor="schedule-interval">
+                    Repeat after each successful run
+                  </label>
+                  <select
+                    id="schedule-interval"
+                    value={interval}
+                    onChange={(e) => setInterval(e.target.value)}
+                  >
+                    <option value="60">Every minute (testing)</option>
+                    <option value="3600">Every hour</option>
+                    <option value="86400">Every day</option>
+                    <option value="604800">Every week</option>
+                  </select>
+                  <p className="muted">
+                    Runs on the server in this same conversation, even with the
+                    tab closed. Failed runs wait for manual retry.
+                  </p>
+                </>
+              )}
             </>
           )}
           {dialog.type === 'settings' && (

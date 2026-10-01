@@ -20,6 +20,14 @@ export const statusLabel = (task: Task) =>
   task.status === 'completed' && task.nextRunAt
     ? 'Scheduled'
     : task.status.charAt(0).toUpperCase() + task.status.slice(1);
+export const cadence = (task: Task) => {
+  if (task.cron)
+    return `Routine ${task.cron} (${task.timezone ?? 'UTC'})${task.nextRunAt ? ` · next ${new Date(task.nextRunAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : ''} · `;
+  if (task.triggerId) return 'From a webhook · ';
+  return task.intervalSeconds
+    ? `Repeats every ${task.intervalSeconds < 3600 ? task.intervalSeconds / 60 + ' min' : task.intervalSeconds / 3600 + ' hr'} · `
+    : '';
+};
 export function Status({ task }: { task: Task }) {
   return (
     <span className={`status ${task.status}`}>
@@ -50,9 +58,7 @@ export function TaskRow({
       <div>
         <strong>{task.prompt}</strong>
         <span>
-          {task.intervalSeconds
-            ? `Repeats every ${task.intervalSeconds < 3600 ? task.intervalSeconds / 60 + ' min' : task.intervalSeconds / 3600 + ' hr'} · `
-            : ''}
+          {cadence(task)}
           {relative(task.updatedAt)}
         </span>
       </div>

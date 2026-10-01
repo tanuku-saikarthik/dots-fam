@@ -20,7 +20,9 @@ import {
   Plus,
   Search,
   Settings2,
+  ShieldCheck,
   Trash2,
+  Users,
   X,
 } from 'lucide-react';
 import type {
@@ -39,6 +41,9 @@ import { ResultPane } from './ResultPane';
 import { TaskRow } from './TaskPresentation';
 import { TaskActions } from './TaskActions';
 import { WorkspaceDialog, type Dialog } from './WorkspaceDialog';
+import { TeamActivity, useTeam } from './TeamActivity';
+import { TeamDialog } from './TeamDialog';
+type ActivityTab = 'approvals' | 'team' | 'routines' | 'webhooks';
 
 export function App() {
   const [state, setState] = useState<State>();
@@ -105,6 +110,15 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState('');
   const [taskDetail, setTaskDetail] = useState<Detail>();
+  const [activityTab, setActivityTab] = useState<ActivityTab>('routines');
+  const [teamOpen, setTeamOpen] = useState(false);
+  const { team, reload: reloadTeam } = useTeam(!needsAuth);
+  const pendingApprovals = team?.pendingApprovals ?? 0;
+  const openActivity = (tab: ActivityTab) => {
+    setActivityTab(tab);
+    setView('tasks');
+    setMobile(false);
+  };
   const refresh = useCallback(async () => {
     try {
       const [s, w] = await Promise.all([
@@ -347,6 +361,14 @@ export function App() {
           DOTS
           <button
             className="icon-button"
+            aria-label="Set up the team"
+            title="Team setup"
+            onClick={() => setTeamOpen(true)}
+          >
+            <Users size={14} />
+          </button>
+          <button
+            className="icon-button"
             aria-label="Create Dot"
             onClick={() =>
               setDialog({ type: 'dot', spaceId: workspace.spaces[0].id })
@@ -367,6 +389,11 @@ export function App() {
               >
                 <Mascot identity={item.id} name={item.name} small decorative />
                 <span>{item.name}</span>
+                {item.canDelegate && (
+                  <small className="chief-badge" title="Chief of Staff">
+                    CoS
+                  </small>
+                )}
               </button>
               <button
                 className="icon-button dot-settings"
@@ -426,14 +453,21 @@ export function App() {
         <div className="sidebar-bottom">
           <button
             className={`nav-item ${view === 'tasks' ? 'active' : ''}`}
-            onClick={() => {
-              setView('tasks');
-              setMobile(false);
-            }}
+            onClick={() =>
+              openActivity(pendingApprovals ? 'approvals' : activityTab)
+            }
           >
             <Clock3 size={17} />
             <span>Scheduled & activity</span>
-            <small>{state.tasks.length}</small>
+            {pendingApprovals ? (
+              <small className="approval-count">{pendingApprovals}</small>
+            ) : (
+              <small>{state.tasks.length}</small>
+            )}
+          </button>
+          <button className="nav-item" onClick={() => setTeamOpen(true)}>
+            <Users size={17} />
+            <span>Team setup</span>
           </button>
           <button
             className={`nav-item ${view === 'memories' ? 'active' : ''}`}
@@ -495,6 +529,15 @@ export function App() {
             </strong>
           </div>
           <div className="top-actions">
+            {pendingApprovals > 0 && (
+              <button
+                className="approval-pill"
+                onClick={() => openActivity('approvals')}
+              >
+                <ShieldCheck size={14} />
+                {pendingApprovals} waiting for approval
+              </button>
+            )}
             <span className="mode-badge">
               {configured ? 'SELF-HOSTED' : 'SETUP REQUIRED'}
             </span>
@@ -706,15 +749,11 @@ export function App() {
             <div className="page-heading">
               <div>
                 <span className="eyebrow">YOUR WORKSPACE</span>
-                <h1>
-                  {view === 'memories'
-                    ? 'Memories'
-                    : 'A little follow-through.'}
-                </h1>
+                <h1>{view === 'memories' ? 'Memories' : 'Team activity'}</h1>
                 <p>
                   {view === 'memories'
                     ? 'Preferences you choose to share with your Dots.'
-                    : 'Scheduled turns run on the server in their original conversation.'}
+                    : 'Approvals, handoffs between Dots, routines, and webhooks. All of it runs on the server with the tab closed.'}
                 </p>
               </div>
               {view === 'memories' && (
@@ -773,88 +812,146 @@ export function App() {
               </>
             ) : (
               <>
-                <label className="search-box">
-                  <Search size={16} />
-                  <input
-                    aria-label="Search tasks"
-                    placeholder="Find a task…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </label>
-                <div className="task-list">
-                  {state.tasks
-                    .filter((task) =>
-                      task.prompt.toLowerCase().includes(search.toLowerCase()),
-                    )
-                    .map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        onClick={() =>
-                          void api<Detail>(`/tasks/${task.id}`)
-                            .then(setTaskDetail)
-                            .catch((e) => setError(e.message))
-                        }
-                      />
-                    ))}
+                <div className="pane-tabs activity-tabs" role="tablist">
+                  {(
+                    [
+                      [
+                        'approvals',
+                        `Approvals${pendingApprovals ? ` (${pendingApprovals})` : ''}`,
+                      ],
+                      ['team', 'Team work'],
+                      ['routines', 'Routines & tasks'],
+                      ['webhooks', 'Webhooks'],
+                    ] as [ActivityTab, string][]
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      role="tab"
+                      aria-selected={activityTab === key}
+                      className={activityTab === key ? 'selected' : undefined}
+                      onClick={() => setActivityTab(key)}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
-                {!state.tasks.length && (
-                  <div className="large-empty">
-                    <Clock3 size={32} />
-                    <h2>Let a thought come back around.</h2>
-                    <p>
-                      Open a conversation and use the clock button to schedule a
-                      server-side task.
-                    </p>
-                  </div>
-                )}
-                {taskDetail && (
-                  <section className="task-detail-card">
-                    <h2>{taskDetail.task.prompt}</h2>
-                    <TaskActions
-                      task={taskDetail.task}
-                      busy={busy}
-                      settings={state.settings}
-                      onAction={(action) =>
-                        void mutate(
-                          `/tasks/${taskDetail.task.id}/actions`,
-                          'POST',
-                          { action },
+                {activityTab !== 'routines' ? (
+                  <TeamActivity
+                    tab={activityTab}
+                    team={team}
+                    workspace={workspace}
+                    reload={async () => {
+                      await reloadTeam();
+                      await refresh();
+                    }}
+                    onError={setError}
+                  />
+                ) : (
+                  <>
+                    <label className="search-box">
+                      <Search size={16} />
+                      <input
+                        aria-label="Search tasks"
+                        placeholder="Find a task…"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                    </label>
+                    <div className="task-list">
+                      {state.tasks
+                        .filter((task) =>
+                          task.prompt
+                            .toLowerCase()
+                            .includes(search.toLowerCase()),
                         )
-                      }
-                      onSchedule={async () => {
-                        const raw = window.prompt(
-                          'Repeat interval in minutes (0 removes the schedule)',
-                          String((taskDetail.task.intervalSeconds ?? 0) / 60),
-                        );
-                        if (raw === null) return;
-                        const value = Number(raw);
-                        if (!Number.isFinite(value) || value < 0) {
-                          setError('Enter a valid number of minutes.');
-                          return;
-                        }
-                        await mutate(
-                          `/tasks/${taskDetail.task.id}/schedule`,
-                          'PUT',
-                          {
-                            intervalSeconds: value
-                              ? Math.round(value * 60)
-                              : null,
-                          },
-                        );
-                      }}
-                    />
-                    {taskDetail.task.error && (
-                      <p className="chat-error">{taskDetail.task.error}</p>
+                        .map((task) => (
+                          <TaskRow
+                            key={task.id}
+                            task={task}
+                            onClick={() =>
+                              void api<Detail>(`/tasks/${task.id}`)
+                                .then(setTaskDetail)
+                                .catch((e) => setError(e.message))
+                            }
+                          />
+                        ))}
+                    </div>
+                    {!state.tasks.length && (
+                      <div className="large-empty">
+                        <Clock3 size={32} />
+                        <h2>Let a thought come back around.</h2>
+                        <p>
+                          Open a conversation and use the clock button to
+                          schedule a server-side task.
+                        </p>
+                      </div>
                     )}
-                    {taskDetail.events.slice(-6).map((event) => (
-                      <p className="muted" key={event.id}>
-                        {event.text}
-                      </p>
-                    ))}
-                    <small>{taskDetail.runs.length} saved runs</small>
-                  </section>
+                    {taskDetail && (
+                      <section className="task-detail-card">
+                        <h2>{taskDetail.task.prompt}</h2>
+                        <TaskActions
+                          task={taskDetail.task}
+                          busy={busy}
+                          settings={state.settings}
+                          onAction={(action) =>
+                            void mutate(
+                              `/tasks/${taskDetail.task.id}/actions`,
+                              'POST',
+                              { action },
+                            )
+                          }
+                          onSchedule={async () => {
+                            if (taskDetail.task.cron) {
+                              const next = window.prompt(
+                                'Cron (minute hour day month weekday). Leave blank to remove the routine.',
+                                taskDetail.task.cron,
+                              );
+                              if (next === null) return;
+                              await mutate(
+                                `/tasks/${taskDetail.task.id}/schedule`,
+                                'PUT',
+                                {
+                                  cron: next.trim() || null,
+                                  timezone: taskDetail.task.timezone,
+                                },
+                              );
+                              return;
+                            }
+                            const raw = window.prompt(
+                              'Repeat interval in minutes (0 removes the schedule)',
+                              String(
+                                (taskDetail.task.intervalSeconds ?? 0) / 60,
+                              ),
+                            );
+                            if (raw === null) return;
+                            const value = Number(raw);
+                            if (!Number.isFinite(value) || value < 0) {
+                              setError('Enter a valid number of minutes.');
+                              return;
+                            }
+                            await mutate(
+                              `/tasks/${taskDetail.task.id}/schedule`,
+                              'PUT',
+                              {
+                                intervalSeconds: value
+                                  ? Math.round(value * 60)
+                                  : null,
+                              },
+                            );
+                          }}
+                        />
+                        {taskDetail.task.error && (
+                          <p className="chat-error">{taskDetail.task.error}</p>
+                        )}
+                        {taskDetail.events.slice(-6).map((event) => (
+                          <p className="muted" key={event.id}>
+                            {event.text}
+                          </p>
+                        ))}
+                        <small>{taskDetail.runs.length} saved runs</small>
+                      </section>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -878,6 +975,17 @@ export function App() {
           </div>
         )}
       </div>
+      {teamOpen && (
+        <TeamDialog
+          workspace={workspace}
+          team={team}
+          onClose={() => setTeamOpen(false)}
+          onChanged={async () => {
+            await refresh();
+            await reloadTeam();
+          }}
+        />
+      )}
       {dialog && (
         <WorkspaceDialog
           dialog={dialog}
