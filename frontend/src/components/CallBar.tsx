@@ -138,7 +138,6 @@ export function CallBar({
       void state.ctx?.close().catch(() => undefined);
     };
     // The call is set up once per mount; the parent remounts it for a new call.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleMute = () => {

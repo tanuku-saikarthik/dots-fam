@@ -218,3 +218,15 @@ async def test_conversation_api_round_trip(client, runtime, script):
     assert detail["thread"]["title"] == "Plan my week"
     state = (await client.get("/api/state")).json()
     assert state["threads"][0]["id"] == thread["id"]
+
+
+def test_setup_lists_every_missing_key(settings):
+    from dotsfam.models import missing_setup
+
+    assert missing_setup(settings) == []
+    settings.openai_api_key = None
+    assert missing_setup(settings) == ["OPENAI_API_KEY"]
+    settings.anthropic_api_key = None
+    assert missing_setup(settings) == ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
+    settings.worker_model = "anthropic:claude-haiku-4-5"
+    assert missing_setup(settings) == ["ANTHROPIC_API_KEY"]

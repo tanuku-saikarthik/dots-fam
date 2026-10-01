@@ -77,15 +77,24 @@ def resolve(settings: Settings, override: str | None = None) -> ModelRef:
 
 
 def missing_setup(settings: Settings) -> list[str]:
+    """What .env still needs before the team can work (the Chief's and specialists' models)."""
     if not settings.default_model:
         return ["DEFAULT_MODEL"]
-    try:
-        resolve(settings)
-    except ValueError:
-        return ["DEFAULT_MODEL"]
-    except ModelSetupError:
-        return [KEY_NAMES[parse_ref(settings.default_model).provider]]
-    return []
+    missing: list[str] = []
+    for name, ref in (
+        ("DEFAULT_MODEL", settings.default_model),
+        ("WORKER_MODEL", settings.worker_model),
+    ):
+        if not ref:
+            continue
+        try:
+            provider = parse_ref(ref).provider
+        except ValueError:
+            missing.append(name)
+            continue
+        if not provider_key(settings, provider) and KEY_NAMES[provider] not in missing:
+            missing.append(KEY_NAMES[provider])
+    return missing
 
 
 def build_chat_model(settings: Settings, ref: ModelRef, max_tokens: int = 4096) -> BaseChatModel:
