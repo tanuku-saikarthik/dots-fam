@@ -939,3 +939,10 @@ class Store:
 
     def bind_slack_thread(self, channel: str, ts: str, thread_id: str) -> None:
         self._run("INSERT OR REPLACE INTO slack_threads VALUES (?, ?, ?)", channel, ts, thread_id)
+
+    def slack_binding(self, thread_id: str) -> dict[str, str] | None:
+        """The Slack thread a conversation started in (the first binding wins)."""
+        return self._one(
+            "SELECT channel, ts FROM slack_threads WHERE thread_id=? ORDER BY rowid LIMIT 1",
+            thread_id,
+        )

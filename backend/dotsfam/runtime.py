@@ -47,6 +47,33 @@ class Runtime:
         """Queue a server-side turn in a conversation (runs when it is free)."""
         self.store.create_task(thread_id, prompt[:20_000], origin="team")
 
+    async def decide(
+        self, approval_id: str, decision: str, note: str | None = None
+    ) -> tuple[dict[str, Any], bool]:
+        """Record an owner decision; resume the paused run once its whole batch is decided."""
+        approval = self.store.decide_approval(approval_id, decision, note)
+        batch = self.store.approvals(batch_id=approval["batch_id"])
+        if any(item["status"] == "pending" for item in batch):
+            return approval, False
+        decisions = {
+            item["tool_call_id"]: {"approved": item["status"] == "approved", "note": item["note"]}
+            for item in batch
+        }
+        delegation = self.store.delegation_for_worker(approval["thread_id"])
+        if delegation:
+            self.store.set_delegation(delegation["id"], "running")
+        await self.runs.resume(approval["thread_id"], decisions)
+        return approval, True
+
+    def root_thread(self, thread_id: str) -> str:
+        """The owner-facing conversation a specialist's internal work belongs to."""
+        for _ in range(6):
+            delegation = self.store.delegation_for_worker(thread_id)
+            if not delegation or not delegation["parent_thread_id"]:
+                break
+            thread_id = delegation["parent_thread_id"]
+        return thread_id
+
     def attach_computers(self, manager: Any) -> None:
         self.computers = manager
         self.runs.computers = manager
@@ -58,7 +85,11 @@ class Runtime:
     async def start(self) -> None:
         self.scheduler.start()
         if self.slack:
-            await self.slack.start()
+            try:
+                await self.slack.start()
+            except Exception:  # noqa: BLE001 - the web app keeps working without Slack
+                log.exception("Slack did not connect; check SLACK_BOT_TOKEN and SLACK_APP_TOKEN")
+                self.slack = None
 
     async def stop(self) -> None:
         await self.scheduler.stop()

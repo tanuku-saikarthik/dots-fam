@@ -21,9 +21,9 @@ def build_tools(ctx: DotContext) -> list[BaseTool]:
     if ctx.computers and ctx.computers.enabled_for(ctx.dot):
         tools += ctx.computers.tools(ctx)
     tools += team_tools(ctx)
-    slack = ctx.extra.get("slack")
-    if slack is not None:
-        tools += slack.tools(ctx)
+    for extension in ctx.extra.values():  # Slack and other integrations contribute tools
+        if hasattr(extension, "tools"):
+            tools += extension.tools(ctx)
     return tools
 
 

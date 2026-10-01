@@ -197,7 +197,7 @@ class FakeOutbox:
 
 async def test_outside_world_actions_pause_for_approval_then_resume(runtime, script, client):
     outbox = FakeOutbox()
-    runtime.runs.extra["slack"] = outbox
+    runtime.runs.extra["outbox"] = outbox
     cole = dot(runtime, "Cole")
     thread = runtime.store.create_thread(cole["id"], "Outreach")
     script.add(
@@ -222,7 +222,7 @@ async def test_outside_world_actions_pause_for_approval_then_resume(runtime, scr
 
 async def test_declined_actions_never_run(runtime, script, client):
     outbox = FakeOutbox()
-    runtime.runs.extra["slack"] = outbox
+    runtime.runs.extra["outbox"] = outbox
     cole = dot(runtime, "Cole")
     thread = runtime.store.create_thread(cole["id"], "Outreach")
     script.add(
@@ -243,7 +243,7 @@ async def test_declined_actions_never_run(runtime, script, client):
 
 async def test_autonomous_dots_skip_the_gate(runtime, script):
     outbox = FakeOutbox()
-    runtime.runs.extra["slack"] = outbox
+    runtime.runs.extra["outbox"] = outbox
     cole = runtime.store.update_dot(dot(runtime, "Cole")["id"], approval_mode="autonomous")
     thread = runtime.store.create_thread(cole["id"], "Outreach")
     script.add("Cole", call("send_email", {"to": "a@b.example", "body": "x"}), "Done.")
@@ -254,7 +254,7 @@ async def test_autonomous_dots_skip_the_gate(runtime, script):
 
 async def test_a_specialists_approval_routes_back_through_the_chief(runtime, script, client):
     outbox = FakeOutbox()
-    runtime.runs.extra["slack"] = outbox
+    runtime.runs.extra["outbox"] = outbox
     vance = dot(runtime, "Vance")
     thread = runtime.store.create_thread(vance["id"], "Outreach run")
     script.add(

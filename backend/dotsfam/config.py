@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     slack_app_token: str | None = None
     slack_allowed_users: str = ""
     slack_dot: str | None = None
+    slack_notify_channel: str | None = None
 
     # Voice: local (Pipecat + Whisper + Kokoro) | openai | off
     voice_stack: str = "local"

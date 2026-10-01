@@ -411,22 +411,7 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
 
     @api.post("/approvals/{approval_id}")
     async def decide(approval_id: str, body: Decision) -> dict[str, Any]:
-        approval = store.decide_approval(approval_id, body.decision, body.note)
-        batch = store.approvals(batch_id=approval["batch_id"])
-        resumed = False
-        if all(item["status"] != "pending" for item in batch):
-            decisions = {
-                item["tool_call_id"]: {
-                    "approved": item["status"] == "approved",
-                    "note": item["note"],
-                }
-                for item in batch
-            }
-            delegation = store.delegation_for_worker(approval["thread_id"])
-            if delegation:
-                store.set_delegation(delegation["id"], "running")
-            await runtime.runs.resume(approval["thread_id"], decisions)
-            resumed = True
+        approval, resumed = await runtime.decide(approval_id, body.decision, body.note)
         return {"approval": approval, "resumed": resumed}
 
     @api.post("/delegations/{delegation_id}/cancel")

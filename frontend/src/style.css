@@ -607,6 +607,13 @@ pre.code {
   grid-template-columns: minmax(0, 1fr);
   justify-items: end;
 }
+.msg.user .via {
+  grid-column: 1 / -1;
+  justify-self: end;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: -6px;
+}
 .msg.user .bubble {
   background: var(--soft);
   border-radius: 16px 16px 4px 16px;

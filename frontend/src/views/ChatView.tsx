@@ -33,6 +33,8 @@ const EVENT_LABELS: Record<string, string> = {
   voice: 'From a voice call',
 };
 
+const VIA: Record<string, string> = { slack: 'via Slack', voice: 'via voice call' };
+
 const LABELS: Record<string, string> = {
   list_spaces: 'Looked at Spaces',
   list_pages: 'Listed pages',
@@ -264,7 +266,7 @@ export function ChatView({
           )}
           {messages.map((message, index) => {
             if (message.role === 'tool' || message.role === 'system') return null;
-            if (message.role === 'user' && message.source && message.source !== 'owner')
+            if (message.role === 'user' && message.source && !(message.source in VIA) && message.source !== 'owner')
               return (
                 <details className="event" key={message.id ?? index}>
                   <summary>{EVENT_LABELS[message.source] ?? 'Background event'}</summary>
@@ -275,6 +277,7 @@ export function ChatView({
               return (
                 <div className="msg user" key={message.id ?? index}>
                   <div className="bubble">{message.text}</div>
+                  {message.source && VIA[message.source] && <span className="via">{VIA[message.source]}</span>}
                 </div>
               );
             const previous = messages[index - 1];
