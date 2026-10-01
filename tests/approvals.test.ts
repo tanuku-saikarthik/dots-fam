@@ -113,6 +113,12 @@ it('classifies outside-world browser and shell steps from the latest snapshot', 
     gatedComputerStep('dot', 'type', at('e4', { text: 'Hi', submit: true })),
   ).toMatch(/submit/);
   expect(gatedComputerStep('dot', 'key', { key: 'Enter' })).toMatch(/Enter/);
+  expect(gatedComputerStep('dot', 'key', { key: 'Control+Enter' })).toMatch(
+    /Enter/,
+  );
+  expect(gatedComputerStep('dot', 'key', { key: 'Meta+Enter' })).toMatch(
+    /Enter/,
+  );
   expect(gatedComputerStep('dot', 'key', { key: 'ArrowDown' })).toBeUndefined();
   expect(() => gatedComputerStep('dot', 'click', at('e9'))).toThrow(
     /fresh computer_snapshot/,

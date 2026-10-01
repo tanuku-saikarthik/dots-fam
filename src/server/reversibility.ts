@@ -102,7 +102,8 @@ export function gatedComputerStep(
   }
   if (action === 'key') {
     const key = typeof input.key === 'string' ? input.key : '';
-    if (!/^(enter|return|numpadenter)$/i.test(key)) return undefined;
+    // Enter, Return, and chords such as Control+Enter or Meta+Enter (send shortcuts).
+    if (!/(^|\+)(enter|return|numpadenter)$/i.test(key)) return undefined;
     const target = lastTyped.get(dotId);
     if (target && (target.role === 'searchbox' || searchLike.test(target.name)))
       return undefined;
