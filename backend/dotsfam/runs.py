@@ -114,7 +114,8 @@ class RunManager:
         thread = self.store.thread(thread_id)
         if source == "owner" and thread["title"] in ("New conversation", ""):
             self.store.touch_thread(thread_id, text.strip().splitlines()[0][:80])
-        return self._start(thread_id, {"messages": [HumanMessage(text)]}, source, task_id)
+        message = HumanMessage(text, additional_kwargs={"dotsfam_source": source})
+        return self._start(thread_id, {"messages": [message]}, source, task_id)
 
     async def resume(
         self, thread_id: str, decisions: dict[str, Any], *, source: str = "approval"
@@ -314,7 +315,12 @@ def _text(content: Any) -> str:
 
 def serialize(message: Any) -> dict[str, Any]:
     if isinstance(message, HumanMessage):
-        return {"id": message.id, "role": "user", "text": _text(message.content)}
+        return {
+            "id": message.id,
+            "role": "user",
+            "text": _text(message.content),
+            "source": message.additional_kwargs.get("dotsfam_source", "owner"),
+        }
     if isinstance(message, AIMessage):
         return {
             "id": message.id,

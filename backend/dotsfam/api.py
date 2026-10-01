@@ -236,9 +236,21 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
         for thread in threads:
             thread["running"] = thread["id"] in running
             thread["pending_approvals"] = store.pending_approvals(thread["id"])
+        working: set[str] = set()
+        for active in runtime.runs.active_runs():
+            try:
+                working.add(store.thread(active.thread_id)["dot_id"])
+            except NotFound:
+                continue
+        waiting: dict[str, int] = {}
+        for approval in store.approvals(limit=500):
+            if approval["status"] == "pending":
+                waiting[approval["dot_id"]] = waiting.get(approval["dot_id"], 0) + 1
         return {
             "flags": store.flags(),
             "setup": setup_status(),
+            "working_dots": sorted(working),
+            "waiting_by_dot": waiting,
             "dots": store.dots(),
             "spaces": store.spaces(),
             "threads": threads,

@@ -1,0 +1,33 @@
+{
+  "name": "dotsfam-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@tiptap/extension-placeholder": "^3.31.4",
+    "@tiptap/extension-table": "^3.31.4",
+    "@tiptap/markdown": "^3.31.4",
+    "@tiptap/react": "^3.31.4",
+    "@tiptap/starter-kit": "^3.31.4",
+    "lucide-react": "^1.49.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "~5.9",
+    "vite": "^8.3.2"
+  }
+}

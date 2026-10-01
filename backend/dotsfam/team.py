@@ -87,7 +87,7 @@ ROSTER: list[dict[str, Any]] = [
         "name": "Owen",
         "title": "Data, Revenue & Security Auditor",
         "chief": False,
-        "color": "orange",
+        "color": "ochre",
         "instructions": (
             "Goal: audit numbers and risk. You own customer-account health, churn signals, weekly pipeline digests, "
             "and dependency and security audits of the owner's repositories.\n"
