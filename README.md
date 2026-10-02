@@ -48,6 +48,20 @@ dotsfam                         # → http://127.0.0.1:8787
 
 The first start creates Team HQ: five Dots and three seed pages. Vance uses `DEFAULT_MODEL`, the specialists use `WORKER_MODEL`. If you only have one provider, point both at it, for example `anthropic:claude-sonnet-4-5` and `anthropic:claude-haiku-4-5`. Any Dot can switch models under **Team and setup**. Models are written as `provider:model`, and `openrouter:...` reaches hundreds more.
 
+**On Windows** (PowerShell), the same steps are:
+
+```powershell
+git clone https://github.com/tanuku-saikarthik/dots-fam.git; cd dots-fam
+Copy-Item .env.example .env; notepad .env      # add your keys
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1                  # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+pip install -e backend
+cd frontend; npm install; npm run build; cd ..
+dotsfam
+```
+
+Everything runs on Windows. Computers need Docker Desktop (with WSL 2) for `COMPUTER_DRIVER=docker`; for `local`, run `playwright install chromium` first. Voice runs natively too: Whisper uses your CPU or an NVIDIA GPU, and Kokoro and Smart Turn run on ONNX Runtime.
+
 **Check web search.** With `EXA_API_KEY` in `.env`, run `python -m dotsfam.check web "who is hiring AI engineers in Bengaluru?"`. It does one search, one page read and one cited answer the way a Dot would, and prints the cost of each.
 
 **Running it for real.** Bind to a public address only with `OWNER_TOKEN` set (the server refuses otherwise), put it behind HTTPS, and set `PUBLIC_URL` so webhook URLs are correct. State lives in `data/` (two SQLite files), so back that folder up.
