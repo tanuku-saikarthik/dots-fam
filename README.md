@@ -13,6 +13,7 @@ Built from scratch on **LangGraph + FastAPI + React**. It works through chat, Sl
 | **A team, not a chatbot** | Vance (Chief of Staff) delegates to Mara (leads), Cole (outreach), Rina (content) and Owen (data and security). Role cards are the org chart: edit them, add Dots, give each its own model. |
 | **Parallel, isolated handoffs** | Each specialist gets one self-contained brief in its own thread, runs in parallel, and reports back. Late results arrive as a team update in your conversation. |
 | **The Reversibility Law** | Dots read, research and draft freely. Sending, posting, paying, deleting, pushing or submitting pauses for your approval: in the web app, with Slack buttons, or by saying "yes" on a call. Declines go back to the Dot so it can change course. |
+| **Web research** | Every Dot can search the web, read and crawl pages, and get quick cited answers through [Exa](https://exa.ai). When a question needs current facts, the Dot searches, reads the best sources and answers with links. A per-task budget stops runaway searching. |
 | **Routines and webhooks** | Cron schedules in your time zone ("weekdays at 9, 1 and 5") and signed webhooks (GitHub and Linear signatures verified, rate-limited, payload treated as untrusted). |
 | **A computer per Dot** | A browser that remembers its logins, a workspace for files, and an optional shell inside the Dot's own Docker container. Watch the live screen, take control, hand it back. |
 | **Pages** | Shared Markdown documents with revisions and conflict checks. Dots write briefs and staging tables here; you edit them in a rich editor. |
@@ -31,7 +32,7 @@ Built from scratch on **LangGraph + FastAPI + React**. It works through chat, Sl
 
 ## Quick start
 
-You need Python 3.11+, Node 20+ and a key for at least one model provider (Anthropic, OpenAI or OpenRouter).
+You need Python 3.11+, Node 20+ and a key for at least one model provider (Anthropic, OpenAI or OpenRouter). Add an `EXA_API_KEY` (exa.ai) too if you want the Dots to search the web.
 
 ```bash
 git clone https://github.com/tanuku-saikarthik/dots-fam.git && cd dots-fam

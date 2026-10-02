@@ -34,6 +34,7 @@ export interface Setup {
   worker_model: string | null;
   timezone: string;
   computer_driver: string;
+  web_search: boolean;
   slack: boolean;
   voice: string;
 }

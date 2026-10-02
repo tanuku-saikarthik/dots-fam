@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     default_model: str | None = None
     worker_model: str | None = None
 
+    # Web search and crawling for every Dot (exa.ai). Without a key, Dots can still read pages by URL.
+    exa_api_key: str | None = None
+    exa_base_url: str = "https://api.exa.ai"
+    exa_max_calls_per_run: int = Field(default=30, ge=1, le=500)
+
     # Execution limits.
     runner_concurrency: int = Field(default=3, ge=1, le=16)
     task_timeout_seconds: int = Field(default=600, ge=30, le=7200)

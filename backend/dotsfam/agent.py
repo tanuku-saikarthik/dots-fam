@@ -52,9 +52,13 @@ def _pending_calls(messages: list[AnyMessage]) -> tuple[AIMessage | None, list[d
 
 
 def _summary(name: str, args: dict[str, Any]) -> str:
-    for key in ("url", "title", "page", "path", "dot", "channel"):
+    for key in ("url", "query", "question", "title", "page", "path", "dot", "channel"):
         if isinstance(args.get(key), str):
             return f"{name} → {args[key][:120]}"
+    urls = args.get("urls")
+    if isinstance(urls, list) and urls:
+        more = f" +{len(urls) - 1}" if len(urls) > 1 else ""
+        return f"{name} → {str(urls[0])[:120]}{more}"
     if name == "delegate_tasks":
         return (
             f"delegate_tasks → {', '.join(a.get('dot', '?') for a in args.get('assignments', []))}"

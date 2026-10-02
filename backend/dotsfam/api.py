@@ -256,6 +256,7 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
             "worker_model": settings.worker_model,
             "timezone": settings.default_timezone,
             "computer_driver": settings.computer_driver,
+            "web_search": bool(settings.exa_api_key),
             "slack": bool(runtime.slack),
             "voice": settings.voice_stack if runtime.voice is not None else "off",
         }

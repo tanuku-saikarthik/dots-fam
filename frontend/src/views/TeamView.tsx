@@ -149,7 +149,12 @@ function DotForm({ state, dot, onSaved }: { state: AppState; dot?: Dot; onSaved:
         <label className="check">
           <input type="checkbox" checked={form.research_allowed} onChange={(e) => set('research_allowed', e.target.checked)} />
           <span>
-            <strong>Read the web</strong>
+            <strong>{state.setup.web_search ? 'Search and read the web' : 'Read web pages'}</strong>
+            <small>
+              {state.setup.web_search
+                ? 'Searches, reads and crawls pages with Exa when a question needs current facts.'
+                : 'Reads pages by link. Add EXA_API_KEY to .env to let Dots search the web.'}
+            </small>
           </span>
         </label>
         <label className="check">

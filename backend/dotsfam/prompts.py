@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from .context import DotContext
+from .tools import web_mode
 from .tools.team import roster_text
 
 REVERSIBILITY = (
@@ -52,6 +53,21 @@ def system_prompt(ctx: DotContext) -> str:
             "Specialists cannot see this conversation. Verify their deliverables and sources, resolve "
             "conflicts, and merge them into one answer. Do quick work yourself.\n"
             f"Roster:\n{roster_text(ctx)}"
+        )
+    mode = web_mode(ctx)
+    if mode == "search":
+        parts.append(
+            "You can use the web: web_search finds pages, web_read reads them (and can crawl a "
+            "site's subpages), web_answer gives quick cited facts. Use them whenever the answer "
+            "depends on anything that changes or that you are not sure of: news, companies, people, "
+            "prices, releases, dates, docs, or anything recent. Search, read the best two to five "
+            "sources, cross-check what matters, then answer with the source links. Don't search for "
+            "things you reliably know. If sources disagree or nothing turns up, say so."
+        )
+    elif mode == "read":
+        parts.append(
+            "You can read a web page when you have its URL (read_web_page), but you cannot search. "
+            "If you need to find pages, say so and suggest the owner adds EXA_API_KEY."
         )
     if ctx.computers and ctx.computers.enabled_for(dot):
         parts.append(

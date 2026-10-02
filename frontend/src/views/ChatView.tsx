@@ -43,6 +43,9 @@ const LABELS: Record<string, string> = {
   create_page: 'Created page',
   update_page: 'Updated page',
   read_web_page: 'Read web page',
+  web_search: 'Searched the web',
+  web_read: 'Read',
+  web_answer: 'Looked up',
   delegate_tasks: 'Handed off',
   computer_open: 'Opened in browser',
   computer_snapshot: 'Looked at the page',
@@ -58,7 +61,10 @@ const LABELS: Record<string, string> = {
 };
 
 function argLabel(args: Record<string, unknown>) {
-  for (const key of ['title', 'page', 'url', 'path', 'channel']) if (typeof args[key] === 'string') return String(args[key]);
+  for (const key of ['query', 'question', 'title', 'page', 'url', 'path', 'channel'])
+    if (typeof args[key] === 'string') return String(args[key]);
+  const urls = args.urls;
+  if (Array.isArray(urls) && urls.length) return `${String(urls[0])}${urls.length > 1 ? ` and ${urls.length - 1} more` : ''}`;
   return '';
 }
 

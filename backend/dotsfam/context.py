@@ -38,9 +38,9 @@ class DotContext:
     worker: WorkerInfo | None = None
     cancelled: Callable[[], bool] = lambda: False
     extra: dict[str, Any] = field(default_factory=dict)
-    source: str = (
-        "owner"  # owner | slack | voice | routine | trigger | team | delegation | approval
-    )
+    # owner | slack | voice | routine | trigger | team | delegation | approval
+    source: str = "owner"
+    counters: dict[str, int] = field(default_factory=dict)  # per-run budgets (e.g. web searches)
 
     def check(self) -> None:
         if self.store.flags()["paused"]:

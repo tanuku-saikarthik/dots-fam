@@ -9,14 +9,25 @@ from __future__ import annotations
 from langchain_core.tools import BaseTool
 
 from ..context import DotContext
+from .exa import exa_tools
 from .pages import page_tools
 from .team import team_tools
 from .web import web_tools
 
 
+def web_mode(ctx: DotContext) -> str | None:
+    """'search' with Exa (search, read, crawl), 'read' (fetch a URL), or None when web is off."""
+    if not (ctx.dot.get("research_allowed") and ctx.store.flags()["research_allowed"]):
+        return None
+    return "search" if ctx.settings.exa_api_key else "read"
+
+
 def build_tools(ctx: DotContext) -> list[BaseTool]:
     tools: list[BaseTool] = [*page_tools(ctx)]
-    if ctx.dot.get("research_allowed") and ctx.store.flags()["research_allowed"]:
+    mode = web_mode(ctx)
+    if mode == "search":
+        tools += exa_tools(ctx)
+    elif mode == "read":
         tools += web_tools(ctx)
     if ctx.computers and ctx.computers.enabled_for(ctx.dot):
         tools += ctx.computers.tools(ctx)
