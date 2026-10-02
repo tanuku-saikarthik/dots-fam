@@ -55,6 +55,8 @@ const config: PlatformConfig = {
   publicUrl: process.env.PUBLIC_URL || undefined,
   browserUrl: process.env.BROWSER_URL,
   browserSecret: process.env.BROWSER_SECRET,
+  tavilyApiKey: process.env.TAVILY_API_KEY || undefined,
+  exaApiKey: process.env.EXA_API_KEY || undefined,
   computerSupervisorUrl: process.env.COMPUTER_SUPERVISOR_URL,
   computerSupervisorToken: process.env.COMPUTER_SUPERVISOR_TOKEN,
   computerToken: process.env.COMPUTER_TOKEN,
@@ -83,6 +85,7 @@ const researchConfig = {
   baseUrl: config.baseUrl,
   browserUrl: config.browserUrl,
   browserSecret: config.browserSecret,
+  tavilyApiKey: config.tavilyApiKey,
 };
 const runner = new Runner(
   store,
@@ -113,7 +116,7 @@ const app = createApp({
   origin:
     process.env.APP_ORIGIN ??
     (process.env.NODE_ENV === 'development'
-      ? 'http://127.0.0.1:5173'
+      ? 'http://127.0.0.1:5273'
       : undefined),
   platform,
 });

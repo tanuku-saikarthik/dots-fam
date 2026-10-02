@@ -9,7 +9,7 @@ import { delegateInput, type DelegationManager } from './delegation.js';
 import { formatModelRef, resolveModel, textAdapter } from './models.js';
 import { pageAccess, pageTools } from './page-tools.js';
 import type { PlatformConfig } from './platform-config.js';
-import { browserResponse } from './research.js';
+import { browserResponse, searchWeb } from './research.js';
 import { reversibilityPrompt } from './reversibility.js';
 import type { Store } from './store.js';
 import { tanstackTools } from './tanstack-tools.js';
@@ -80,12 +80,39 @@ export function dotServerTools(ctx: DotToolContext): {
     () => ctx.store.settings().paused,
   );
   const tools: ToolDefinition[] = [];
+  if (dot.researchAllowed && settings.researchAllowed && config.tavilyApiKey)
+    tools.push(
+      defineTool({
+        name: 'search_web',
+        description:
+          'Search the open web for a query and return the top matching pages (title, URL, short excerpt). Call this FIRST for any question needing current or external information — before assuming you cannot search, and before read_public_page/crawl_page (which only work on one exact URL you already have). You have real tools for this: never tell the owner you cannot search, and never ask them to paste a link or screenshot before trying search_web yourself.',
+        parameters: z.object({ query: z.string().min(1).max(400) }),
+        execute: async ({ query }) => {
+          check();
+          if (!ctx.store.settings().researchAllowed)
+            throw new Error('Research permission is disabled.');
+          if (!config.tavilyApiKey)
+            throw new Error(
+              'Web search is not configured: set TAVILY_API_KEY.',
+            );
+          const results = await searchWeb(query, config.tavilyApiKey, signal);
+          check();
+          return {
+            results: results.map((r) => ({
+              title: r.title,
+              url: r.url,
+              excerpt: r.content.slice(0, 320),
+            })),
+          };
+        },
+      }),
+    );
   if (dot.researchAllowed && settings.researchAllowed && !computer.configured)
     tools.push(
       defineTool({
         name: 'read_public_page',
         description:
-          'Read a provided canonical public HTTP(S) URL in a separate read-only browser, returning source evidence. No web search, redirects, authenticated sites, or write actions.',
+          'Read ONE exact public HTTP(S) URL you already have (e.g. from search_web results or supplied by the owner) in a separate read-only browser, returning full source text. Not for finding pages — use search_web for that. No redirects, authenticated sites, write actions, or JavaScript-rendered content. If this call fails for ANY reason (redirect blocked, JavaScript required, timeout, parse error), immediately retry the exact same URL with crawl_page before replying — do not ask the owner for a link, screenshot, or to check the site themselves; you have a working fallback tool, use it first.',
         parameters: z.object({ url: z.string().url().max(2048) }),
         execute: async ({ url }) => {
           check();
@@ -107,10 +134,15 @@ export function dotServerTools(ctx: DotToolContext): {
               signal,
             },
           );
-          if (!response.ok)
+          if (!response.ok) {
+            const data: unknown = await response.json().catch(() => null);
+            const message = z
+              .object({ error: z.string() })
+              .safeParse(data);
             throw new Error(
-              `Browser returned HTTP ${response.status}. Provide a public canonical page URL; redirects and private addresses are blocked.`,
+              `Browser failed (${response.status}): ${message.success ? message.data.error : 'Could not read the source.'}`,
             );
+          }
           const page = browserResponse.parse(await response.json());
           check();
           workspace.saveCapture(threadId, {
@@ -130,6 +162,73 @@ export function dotServerTools(ctx: DotToolContext): {
             url: page.url,
             text: page.text.slice(0, 24000),
           };
+        },
+      }),
+    );
+  if (dot.researchAllowed && settings.researchAllowed && config.exaApiKey)
+    tools.push(
+      defineTool({
+        name: 'crawl_page',
+        description:
+          'Read ONE exact public HTTP(S) URL using a JavaScript-rendering crawler that follows redirects. This is your fallback whenever read_public_page fails — ticketing sites (BookMyShow, District, Insider), event/listing sites (Meetup, Luma), and most heavily JS-rendered pages need this tool, not read_public_page. Always try this automatically after a read_public_page failure before telling the owner you could not check something; only ask them for a link if you do not have one at all.',
+        parameters: z.object({ url: z.string().url().max(2048) }),
+        execute: async ({ url }) => {
+          check();
+          if (!ctx.store.settings().researchAllowed)
+            throw new Error('Research permission is disabled.');
+          if (!config.exaApiKey)
+            throw new Error('Crawling is not configured: set EXA_API_KEY.');
+          const response = await fetch('https://api.exa.ai/contents', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${config.exaApiKey}`,
+            },
+            body: JSON.stringify({
+              urls: [url],
+              text: { maxCharacters: 24000 },
+              livecrawl: 'preferred',
+            }),
+            signal,
+          });
+          if (!response.ok) {
+            const data: unknown = await response.json().catch(() => null);
+            const message = z
+              .object({ error: z.string() })
+              .safeParse(data);
+            throw new Error(
+              `Crawl failed (${response.status}): ${message.success ? message.data.error : 'Could not read the source.'}`,
+            );
+          }
+          const parsed = z
+            .object({
+              results: z
+                .array(
+                  z.object({
+                    title: z.string().default(''),
+                    url: z.string().url(),
+                    text: z.string().default(''),
+                  }),
+                )
+                .min(1),
+            })
+            .safeParse(await response.json());
+          if (!parsed.success)
+            throw new Error('Crawler returned an invalid or empty response.');
+          const page = parsed.data.results[0];
+          check();
+          workspace.saveCapture(threadId, {
+            sample: false,
+            text: page.text,
+            sources: [
+              {
+                title: page.title || page.url,
+                url: page.url,
+                excerpt: page.text.slice(0, 320),
+              },
+            ],
+          });
+          return { title: page.title, url: page.url, text: page.text };
         },
       }),
     );

@@ -32,6 +32,10 @@ export interface PlatformConfig {
   computerNamespace?: string;
   browserUrl?: string;
   browserSecret?: string;
+  /** Tavily web search key; enables open-ended research beyond a single pasted URL. */
+  tavilyApiKey?: string;
+  /** Exa key; a JS-rendering, redirect-following page reader for sites the local browser tool can't reach. */
+  exaApiKey?: string;
   voiceKey?: string;
   voiceModel?: string;
   voiceName: string;
@@ -81,7 +85,10 @@ export function setupStatus(
   return {
     intelligence: !!config.intelligenceKey,
     model: !missingModel,
-    browser: !!(config.browserUrl && config.browserSecret),
+    browser: !!(
+      (config.browserUrl && config.browserSecret) ||
+      config.tavilyApiKey
+    ),
     voice: !!(config.voiceKey && config.voiceModel && !missing.length),
     slack,
     missing,
