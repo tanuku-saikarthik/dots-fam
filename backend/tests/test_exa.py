@@ -244,3 +244,17 @@ async def test_a_bad_key_is_explained_to_the_dot(runtime, script, exa):
     await runtime.runs.send(thread["id"], "search")
     await finish(runtime, thread["id"])
     assert "EXA_API_KEY" in tool_result(script, "mara", "web_search")["error"]
+
+
+async def test_the_live_check_command_walks_search_read_and_answer(settings, capsys):
+    from dotsfam.check import check_web
+
+    settings.exa_api_key = None
+    assert await check_web(settings, "anything") is False
+    assert "EXA_API_KEY is not set" in capsys.readouterr().out
+    settings.exa_api_key = "exa-test-key"
+    fake = FakeExa()
+    assert await check_web(settings, "who is hiring", httpx.MockTransport(fake)) is True
+    out = capsys.readouterr().out
+    assert [r.url.path for r in fake.requests] == ["/search", "/contents", "/answer"]
+    assert "https://example.com/careers" in out and "Web search works" in out

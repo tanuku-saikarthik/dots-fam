@@ -48,6 +48,8 @@ dotsfam                         # → http://127.0.0.1:8787
 
 The first start creates Team HQ: five Dots and three seed pages. Vance uses `DEFAULT_MODEL`, the specialists use `WORKER_MODEL`. If you only have one provider, point both at it, for example `anthropic:claude-sonnet-4-5` and `anthropic:claude-haiku-4-5`. Any Dot can switch models under **Team and setup**. Models are written as `provider:model`, and `openrouter:...` reaches hundreds more.
 
+**Check web search.** With `EXA_API_KEY` in `.env`, run `python -m dotsfam.check web "who is hiring AI engineers in Bengaluru?"`. It does one search, one page read and one cited answer the way a Dot would, and prints the cost of each.
+
 **Running it for real.** Bind to a public address only with `OWNER_TOKEN` set (the server refuses otherwise), put it behind HTTPS, and set `PUBLIC_URL` so webhook URLs are correct. State lives in `data/` (two SQLite files), so back that folder up.
 
 **Developing.** Run `dotsfam` and `cd frontend && npm run dev`, then open http://localhost:5174. Vite proxies `/api` and `/hooks` to the backend.
