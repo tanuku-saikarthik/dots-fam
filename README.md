@@ -48,19 +48,23 @@ dotsfam                         # → http://127.0.0.1:8787
 
 The first start creates Team HQ: five Dots and three seed pages. Vance uses `DEFAULT_MODEL`, the specialists use `WORKER_MODEL`. If you only have one provider, point both at it, for example `anthropic:claude-sonnet-4-5` and `anthropic:claude-haiku-4-5`. Any Dot can switch models under **Team and setup**. Models are written as `provider:model`, and `openrouter:...` reaches hundreds more.
 
-**On Windows** (PowerShell), the same steps are:
+**On Windows**, the smoothest route is WSL 2: run `wsl --install -d Ubuntu`, open Ubuntu, follow the steps above, and open http://localhost:8787 in your Windows browser. For voice calls, set `networkingMode=mirrored` under `[wsl2]` in `%UserProfile%\.wslconfig`. Windows' Smart App Control doesn't check Linux programs, so nothing gets blocked.
+
+To run it natively in PowerShell instead:
 
 ```powershell
 git clone https://github.com/tanuku-saikarthik/dots-fam.git; cd dots-fam
 Copy-Item .env.example .env; notepad .env      # add your keys
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1                  # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-pip install -e backend
+python -m pip install -e backend
 cd frontend; npm install; npm run build; cd ..
-dotsfam
+python -m dotsfam.main                          # same as `dotsfam`
 ```
 
-Everything runs on Windows. Computers need Docker Desktop (with WSL 2) for `COMPUTER_DRIVER=docker`; for `local`, run `playwright install chromium` first. Voice runs natively too: Whisper uses your CPU or an NVIDIA GPU, and Kokoro and Smart Turn run on ONNX Runtime.
+Use `python -m ...` for every command (`python -m dotsfam.main`, `python -m playwright install chromium`). pip creates a small `.exe` launcher for each command, and each one is unique to your install. With Smart App Control on, Windows blocks those launchers because it has never seen them before. The signed `python.exe` is allowed. If Smart App Control still blocks a library file, use WSL 2, or turn it off while you install. Since the April 2026 update (KB5083769) you can turn it back on afterwards: Windows Security, App & browser control, Smart App Control settings.
+
+Computers need Docker Desktop (with WSL 2) for `COMPUTER_DRIVER=docker`. Voice works natively too: Whisper uses your CPU or an NVIDIA GPU, and Kokoro and Smart Turn run on ONNX Runtime.
 
 **Check web search.** With `EXA_API_KEY` in `.env`, run `python -m dotsfam.check web "who is hiring AI engineers in Bengaluru?"`. It does one search, one page read and one cited answer the way a Dot would, and prints the cost of each.
 
