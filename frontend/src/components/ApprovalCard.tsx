@@ -35,7 +35,7 @@ function ScreenPeek({ dotId, name }: { dotId: string; name: string }) {
   return (
     <a className="peek" href={`#/computer/${dotId}`} title={`Open ${name}'s computer`}>
       <img src={src} alt={`What ${name}'s browser shows while it waits for you`} />
-      <span className="muted small">What {name}'s browser shows right now. Open the computer to look closer or take control.</span>
+      <span className="peek-label">{name}'s screen now</span>
     </a>
   );
 }
