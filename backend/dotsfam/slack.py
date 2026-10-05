@@ -47,6 +47,8 @@ def _chunks(text: str, size: int = LIMIT) -> list[str]:
 def _args_text(args: dict[str, Any]) -> str:
     lines = []
     for key, value in args.items():
+        if key in ("ref", "snapshot_id"):  # snapshot pointers mean nothing to a person
+            continue
         shown = value if isinstance(value, str) else repr(value)
         shown = shown if len(shown) < 1200 else shown[:1200] + "…"
         lines.append(
