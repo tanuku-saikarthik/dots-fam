@@ -1,12 +1,38 @@
-.venv/
+# Python
+.venv*/
+venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / frontend
 node_modules/
 dist/
+*.tsbuildinfo
+.vite/
+
+# Runtime data & secrets
 data/
+*.sqlite
+*.sqlite-*
+*.db
+*.secret
 .env
 .env.*
 !.env.example
-*.sqlite
-*.sqlite-*
+*.bak
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

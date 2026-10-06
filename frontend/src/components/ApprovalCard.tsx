@@ -10,6 +10,10 @@ const TOOL_LABELS: Record<string, string> = {
   computer_type: 'Submit a form in the browser',
   computer_press: 'Press a key in the browser',
   computer_shell: 'Run a shell command',
+  write_file: 'Write a file',
+  edit_file: 'Edit a file',
+  run_command: 'Run a command on your computer',
+  create_dot: 'Add a new Dot to the team',
 };
 
 // Internal pointers into a snapshot: meaningless to a person, so the screen is shown instead.
@@ -71,7 +75,7 @@ export function ApprovalCard({
       <div className="row">
         <DotMark dot={dot} size="s" />
         <h3 className="grow">
-          {dot?.name ?? 'A Dot'} wants to {(TOOL_LABELS[approval.tool] ?? approval.tool).toLowerCase()}
+          {dot?.name ?? 'A Dot'} wants to {(TOOL_LABELS[approval.tool] ?? approval.tool.replaceAll('_', ' ')).toLowerCase()}
         </h3>
         <span className={`status ${approval.status}`}>{pending ? 'Waiting for you' : approval.status}</span>
       </div>

@@ -1,0 +1,234 @@
+.office-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.office-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 28px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  flex-wrap: wrap;
+}
+.office-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.office-speed {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.office-speed button {
+  border: 0;
+  background: none;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.office-speed button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 650;
+}
+.office-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.office-conn.on {
+  color: var(--ok);
+}
+
+.office-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 280px;
+  gap: 16px;
+  padding: 16px 28px 28px;
+}
+.office-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-sm);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.office-panel h3 {
+  margin-bottom: 10px;
+}
+
+.office-roster {
+  overflow: auto;
+}
+.office-roster-list {
+  display: grid;
+  gap: 4px;
+}
+.office-roster-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  background: none;
+  border-radius: var(--radius-control);
+  padding: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.office-roster-item:hover {
+  background: var(--soft);
+}
+.office-roster-item.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+}
+.office-roster-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
+}
+.office-roster-main {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+.office-roster-name {
+  font: 600 13.5px/1.3 var(--display);
+}
+.office-roster-task {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.office-status-chip {
+  font-size: 11px;
+  font-weight: 650;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: var(--soft);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.office-status-chip.phase-working {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.office-status-chip.phase-waiting {
+  background: var(--wait-bg);
+  color: var(--wait);
+}
+.office-status-chip.phase-handing_off {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.office-canvas-wrap {
+  position: relative;
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-md);
+  min-height: 0;
+}
+.office-canvas-wrap canvas {
+  display: block;
+}
+.office-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--surface);
+}
+
+.office-detail {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 260px;
+  max-height: calc(100% - 24px);
+  animation: rise-in 0.3s var(--ease-out-expo) both;
+}
+.office-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.office-detail-head h3 {
+  flex: 1;
+}
+.office-detail-history {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+  overflow: auto;
+}
+.office-detail-task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+.office-detail-task span.done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.office-detail-task small {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.office-log {
+  overflow: hidden;
+}
+.office-log-list {
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.office-log-item {
+  font-size: 13px;
+  display: grid;
+  gap: 1px;
+}
+.office-log-item time {
+  font-size: 11px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1080px) {
+  .office-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(360px, 1fr) auto;
+  }
+  .office-roster,
+  .office-log {
+    max-height: 220px;
+  }
+}

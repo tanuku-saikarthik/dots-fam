@@ -1,4 +1,5 @@
 import { Pause, Play } from 'lucide-react';
+import { motion } from 'framer-motion';
 import type { AppState, Dot } from '../api';
 import { DotMark } from './DotMark';
 
@@ -22,20 +23,32 @@ export function TeamLine({
       {menu}
       {state.dots.map((dot) => {
         const count = waiting.get(dot.id);
+        const isWorking = working.has(dot.id);
+        const isSelected = selected === dot.id;
         return (
-          <button
+          <motion.button
             key={dot.id}
-            className={`team-member c-${dot.color} ${working.has(dot.id) ? 'working' : ''} ${count ? 'waiting' : ''}`}
-            aria-pressed={selected === dot.id}
+            className={`team-member c-${dot.color} ${isWorking ? 'working' : ''} ${count ? 'waiting' : ''}`}
+            aria-pressed={isSelected}
             onClick={() => onSelect(dot)}
-            title={`${dot.name}${dot.title ? `, ${dot.title}` : ''}${working.has(dot.id) ? ' (working)' : ''}`}
+            title={`${dot.name}${dot.title ? `, ${dot.title}` : ''}${isWorking ? ' (working)' : ''}`}
+            whileHover={{ y: -3 }}
+            whileTap={{ scale: 0.95 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 22 }}
           >
+            {isSelected && (
+              <motion.span
+                layoutId="team-active"
+                className="team-active"
+                transition={{ type: 'spring', stiffness: 500, damping: 40 }}
+              />
+            )}
             <span className="ring" data-count={count ?? ''}>
-              <DotMark dot={dot} size="l" />
+              <DotMark dot={dot} size="l" active={isWorking} />
             </span>
             <span className="name">{dot.name}</span>
             <span className="role">{dot.title || (dot.can_delegate ? 'Chief of Staff' : 'Specialist')}</span>
-          </button>
+          </motion.button>
         );
       })}
       <div className="team-line-end">

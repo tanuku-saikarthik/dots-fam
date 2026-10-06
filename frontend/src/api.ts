@@ -12,6 +12,7 @@ export interface Dot {
   space_ids: string[];
   color: string;
   computer: Record<string, boolean>;
+  local: { enabled?: boolean; project_dir?: string | null };
 }
 export interface Space {
   id: string;

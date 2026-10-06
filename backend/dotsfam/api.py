@@ -171,6 +171,11 @@ class ComputerPatch(BaseModel):
     shell: bool | None = None
 
 
+class LocalPatch(BaseModel):
+    enabled: bool | None = None
+    project_dir: str | None = Field(None, max_length=1000)
+
+
 class VoiceOffer(BaseModel):
     sdp: str = Field(min_length=10, max_length=200_000)
     type: Literal["offer"] = "offer"
@@ -318,6 +323,38 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
             await runtime.computers.stop(dot)
         store.delete_dot(dot_id)
         return {"ok": True}
+
+    @api.patch("/local/{dot_id}")
+    async def local_permissions(dot_id: str, body: LocalPatch) -> dict[str, Any]:
+        """Claude Code capabilities: file/command access scoped to one project folder.
+
+        Turning this on is a single switch for "everything Claude Code can do on a real
+        task" - it also makes sure the Dot can search the web and use its sandboxed
+        browser, so it isn't missing half its toolkit. Turning it off only turns off the
+        local file/command access; web search and the computer stay as the owner left them.
+        """
+        dot = store.dot(dot_id)
+        patch = body.model_dump(exclude_unset=True)
+        if "project_dir" in patch and patch["project_dir"]:
+
+            def resolve_folder(raw: str) -> Path:
+                return Path(raw).expanduser()
+
+            folder = await asyncio.to_thread(resolve_folder, patch["project_dir"])
+            if not await asyncio.to_thread(folder.is_dir):
+                raise HTTPException(400, f"{folder} is not a folder this server can see.")
+            patch["project_dir"] = str(folder)
+        merged = {**(dot.get("local") or {}), **patch}
+        if merged.get("enabled") and not merged.get("project_dir"):
+            raise HTTPException(400, "Set a project folder before turning this on.")
+        dot = store.update_dot(dot_id, local=merged)
+        if patch.get("enabled"):
+            if not dot.get("research_allowed"):
+                dot = store.update_dot(dot_id, research_allowed=True)
+            if runtime.computers is not None:
+                perms = {**runtime.computers.permissions(dot), "enabled": True, "browser": True, "files": True, "shell": True}
+                dot = store.update_dot(dot_id, computer=perms)
+        return dot
 
     # -- spaces & pages -----------------------------------------------------------
     @api.post("/spaces", status_code=201)

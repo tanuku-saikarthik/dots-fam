@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { api, type AppState, type Dot } from '../api';
 import { browserZone } from '../cron';
@@ -30,6 +30,13 @@ function DotForm({ state, dot, onSaved }: { state: AppState; dot?: Dot; onSaved:
   );
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const lastDotId = useRef(dot?.id);
+  if (dot?.id !== lastDotId.current) {
+    lastDotId.current = dot?.id;
+    setForm(dot ? { ...dot, model: dot.model ?? '' } : { ...blank, space_id: state.spaces[0]?.id ?? '' });
+    setError('');
+    setSaved(false);
+  }
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
     setSaved(false);
     setForm((current) => ({ ...current, [key]: value }));
@@ -173,6 +180,74 @@ function DotForm({ state, dot, onSaved }: { state: AppState; dot?: Dot; onSaved:
   );
 }
 
+function LocalCapability({ dot, onChanged }: { dot: Dot; onChanged: (dot: Dot) => void }) {
+  const [enabled, setEnabled] = useState(!!dot.local?.enabled);
+  const [dir, setDir] = useState(dot.local?.project_dir ?? '');
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+  const lastDotId = useRef(dot.id);
+  if (dot.id !== lastDotId.current) {
+    lastDotId.current = dot.id;
+    setEnabled(!!dot.local?.enabled);
+    setDir(dot.local?.project_dir ?? '');
+    setError('');
+    setSaved(false);
+  }
+  return (
+    <form
+      className="panel stack"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError('');
+        setSaved(false);
+        try {
+          const result = await api<Dot>(`/local/${dot.id}`, 'PATCH', {
+            enabled,
+            project_dir: dir.trim() || null,
+          });
+          setSaved(true);
+          onChanged(result);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Could not save.');
+        }
+      }}
+    >
+      <div>
+        <h2>Claude Code capabilities</h2>
+        <p className="muted small">
+          One switch for everything Claude Code can do on a real task: reading, writing and editing files,
+          running commands, searching the web, and using its own browser — all scoped to one project folder on
+          this computer. Turning it on also switches on "Search and read the web" and the Computer for this Dot.
+        </p>
+      </div>
+      <label className="check full">
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        <span>
+          <strong>Give {dot.name} local Claude Code access</strong>
+          <small>
+            Reads are free. Writing, editing, and any command that changes something still waits for your
+            approval — same Reversibility Law as everything else.
+          </small>
+        </span>
+      </label>
+      <label className="field full">
+        <span>Project folder</span>
+        <input
+          value={dir}
+          placeholder="/mnt/c/Users/you/projects/this-project"
+          onChange={(e) => setDir(e.target.value)}
+        />
+        <small>{dot.name} can only read and write inside this folder — nothing else on the computer.</small>
+      </label>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button className="button primary">Save changes</button>
+        {saved && <span className="muted small">Saved.</span>}
+      </div>
+    </form>
+  );
+}
+
 function Blueprints({ state, onChanged }: { state: AppState; onChanged: () => void }) {
   const [info, setInfo] = useState<TeamInfo>();
   const [zone, setZone] = useState(state.setup.timezone !== 'UTC' ? state.setup.timezone : browserZone());
@@ -278,7 +353,6 @@ export function TeamView({ state, onChanged }: { state: AppState; onChanged: () 
         </nav>
         <div className="stack">
           <DotForm
-            key={selected}
             state={state}
             dot={dot}
             onSaved={(saved) => {
@@ -286,6 +360,15 @@ export function TeamView({ state, onChanged }: { state: AppState; onChanged: () 
               if (!dot) setSelected(saved.id);
             }}
           />
+          {dot && (
+            <LocalCapability
+              dot={dot}
+              onChanged={(saved) => {
+                onChanged();
+                setSelected(saved.id);
+              }}
+            />
+          )}
           <Blueprints state={state} onChanged={onChanged} />
           <section className="stack">
             <div>

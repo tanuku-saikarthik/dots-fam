@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS dots(
   instructions TEXT NOT NULL, model TEXT, can_delegate INTEGER NOT NULL DEFAULT 0,
   approval_mode TEXT NOT NULL DEFAULT 'reversible', research_allowed INTEGER NOT NULL DEFAULT 1,
   memory_allowed INTEGER NOT NULL DEFAULT 1, computer TEXT NOT NULL DEFAULT '{}',
+  local TEXT NOT NULL DEFAULT '{}',
   space_id TEXT NOT NULL REFERENCES spaces(id), color TEXT NOT NULL DEFAULT 'blue',
   created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS dot_spaces(
@@ -112,6 +113,11 @@ class Store:
         self._db.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._db.executescript(SCHEMA)
+        # Additive migration: SCHEMA's CREATE TABLE IF NOT EXISTS won't add columns to a
+        # dots table that already existed before this field was introduced.
+        existing_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(dots)")}
+        if "local" not in existing_columns:
+            self._db.execute("ALTER TABLE dots ADD COLUMN local TEXT NOT NULL DEFAULT '{}'")
         # Delegated work cannot survive a restart mid-run; record that honestly.
         self._db.execute(
             "UPDATE delegations SET status='failed', error='Server restarted before this work finished.',"
@@ -199,6 +205,7 @@ class Store:
         row["research_allowed"] = bool(row["research_allowed"])
         row["memory_allowed"] = bool(row["memory_allowed"])
         row["computer"] = json.loads(row["computer"] or "{}")
+        row["local"] = json.loads(row["local"] or "{}")
         row["space_ids"] = [
             item["space_id"]
             for item in self._all("SELECT space_id FROM dot_spaces WHERE dot_id=?", row["id"])
@@ -275,6 +282,7 @@ class Store:
             "space_id",
             "color",
             "computer",
+            "local",
         }
         fields = {
             key: value for key, value in patch.items() if key in allowed and value is not None
@@ -291,7 +299,7 @@ class Store:
             for key, value in fields.items():
                 if key in ("can_delegate", "research_allowed", "memory_allowed"):
                     value = int(bool(value))
-                if key == "computer":
+                if key in ("computer", "local"):
                     value = json.dumps(value)
                 db.execute(f"UPDATE dots SET {key}=? WHERE id=?", (value, dot_id))  # noqa: S608
             if space_ids is not None:

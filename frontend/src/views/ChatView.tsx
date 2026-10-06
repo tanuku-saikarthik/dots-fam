@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { motion } from 'framer-motion';
 import { AlertTriangle, ArrowUp, CircleCheck, CircleDot, Clock, Monitor, Phone, Square, Trash2, Wrench } from 'lucide-react';
 import {
   api,
@@ -58,6 +59,14 @@ const LABELS: Record<string, string> = {
   computer_read_file: 'Read file',
   computer_write_file: 'Saved file',
   computer_shell: 'Ran a command',
+  read_file: 'Read a file',
+  write_file: 'Wrote a file',
+  edit_file: 'Edited a file',
+  glob_files: 'Listed files',
+  grep_files: 'Searched files',
+  run_command: 'Ran a command',
+  spawn_subagents: 'Split the work in parallel',
+  create_dot: 'Added a new Dot',
 };
 
 function argLabel(args: Record<string, unknown>) {
@@ -228,7 +237,7 @@ export function ChatView({
   return (
     <section className="chat" aria-label={`Conversation with ${dot.name}`}>
       <div className="chat-head">
-        <DotMark dot={dot} />
+        <DotMark dot={dot} size="l" active={running} />
         <div className="grow">
           <h2>{thread ? thread.title : `New conversation with ${dot.name}`}</h2>
           <p className="muted small">
@@ -268,17 +277,45 @@ export function ChatView({
       <div className="chat-scroll" ref={scroller}>
         <div className="chat-column">
           {!threadId && (
-            <div className="empty">
-              <h2>What should {dot.name} take on?</h2>
-              <p>{dot.instructions.split('\n')[0]}</p>
-              <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
+            <motion.div
+              className="empty hero"
+              initial="hidden"
+              animate="show"
+              variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07, delayChildren: 0.05 } } }}
+            >
+              <motion.div
+                variants={{ hidden: { opacity: 0, scale: 0.9 }, show: { opacity: 1, scale: 1 } }}
+                transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                style={{ display: 'inline-block' }}
+              >
+                <DotMark dot={dot} size="l" />
+              </motion.div>
+              <motion.h1
+                variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}
+                transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+              >
+                What should {dot.name} take on?
+              </motion.h1>
+              <motion.p
+                className="muted"
+                variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } }}
+                transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {dot.instructions.split('\n')[0]}
+              </motion.p>
+              <motion.div
+                className="row"
+                style={{ justifyContent: 'center', marginTop: 20 }}
+                variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } }}
+                transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+              >
                 {starters.map((text) => (
                   <button key={text} className="button" onClick={() => setDraft(text)}>
                     {text}
                   </button>
                 ))}
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           )}
           {messages.map((message, index) => {
             if (message.role === 'tool' || message.role === 'system') return null;
@@ -291,27 +328,39 @@ export function ChatView({
               );
             if (message.role === 'user')
               return (
-                <div className="msg user" key={message.id ?? index}>
+                <motion.div
+                  className="msg user"
+                  key={message.id ?? index}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                >
                   <div className="bubble">{message.text}</div>
                   {message.source && VIA[message.source] && <span className="via">{VIA[message.source]}</span>}
-                </div>
+                </motion.div>
               );
             const previous = messages[index - 1];
             const continued = previous && (previous.role === 'tool' || previous.role === 'assistant');
             return (
-              <div className="msg" key={message.id ?? index}>
+              <motion.div
+                className="msg"
+                key={message.id ?? index}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.22, ease: 'easeOut' }}
+              >
                 {continued ? <span /> : <DotMark dot={dot} />}
                 <div>
                   {!continued && <div className="who">{dot.name}</div>}
                   {!!message.tool_calls?.length && <Steps message={message} results={results} dots={state.dots} />}
                   {message.text && <Markdown text={message.text} />}
                 </div>
-              </div>
+              </motion.div>
             );
           })}
           {live && (
-            <div className="msg" aria-live="polite">
-              <DotMark dot={dot} />
+            <motion.div className="msg" aria-live="polite" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <DotMark dot={dot} active />
               <div>
                 <div className="who">{dot.name}</div>
                 <div className="steps">
@@ -332,7 +381,7 @@ export function ChatView({
                   </span>
                 )}
               </div>
-            </div>
+            </motion.div>
           )}
           {pending.map((approval) => (
             <ApprovalCard

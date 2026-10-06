@@ -1,5 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity as ActivityIcon, CalendarClock, FileText, Menu, MessageSquare, Monitor, Plus, Settings2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  Activity as ActivityIcon,
+  Building2,
+  CalendarClock,
+  FileText,
+  Menu,
+  MessageSquare,
+  Monitor,
+  Moon,
+  Plus,
+  Settings2,
+  Sun,
+} from 'lucide-react';
 import { api, ApiError, setToken, type Activity, type AppState } from './api';
 import { DotMark } from './components/DotMark';
 import { TeamLine } from './components/TeamLine';
@@ -9,6 +22,7 @@ import { ComputerView } from './views/ComputerView';
 import { PagesView } from './views/PagesView';
 import { RoutinesView } from './views/RoutinesView';
 import { TeamView } from './views/TeamView';
+import { OfficeView } from './office/OfficeView';
 
 function useHashRoute(): [string[], (path: string) => void] {
   const read = () => (location.hash.replace(/^#\/?/, '') || 'chat').split('/').filter(Boolean);
@@ -19,6 +33,51 @@ function useHashRoute(): [string[], (path: string) => void] {
     return () => window.removeEventListener('hashchange', onChange);
   }, []);
   return [parts, (path: string) => (location.hash = path)];
+}
+
+function NavItem({
+  active,
+  onClick,
+  icon,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+  count?: number;
+}) {
+  return (
+    <button aria-current={active ? 'page' : undefined} onClick={onClick}>
+      {active && (
+        <motion.span
+          layoutId="nav-active"
+          className="nav-active"
+          transition={{ type: 'spring', stiffness: 500, damping: 40 }}
+        />
+      )}
+      <span className="nav-item-content">
+        {icon} {label}
+        {!!count && <span className="count">{count}</span>}
+      </span>
+    </button>
+  );
+}
+
+function useTheme(): [string, () => void] {
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || 'dark');
+  const toggle = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem('dotsfam-theme', next);
+    } catch {
+      /* private browsing or storage disabled */
+    }
+    setTheme(next);
+  };
+  return [theme, toggle];
 }
 
 function Lock({ onUnlock }: { onUnlock: () => void }) {
@@ -54,6 +113,7 @@ export function App() {
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState('');
   const [menu, setMenu] = useState(false);
+  const [theme, toggleTheme] = useTheme();
   const [route, navigate] = useHashRoute();
   const [view] = route;
 
@@ -126,25 +186,39 @@ export function App() {
           Dots Fam
         </div>
         <nav className="nav">
-          <button aria-current={view === 'chat' ? 'page' : undefined} onClick={() => go(`/chat/${chatDot?.id ?? ''}`)}>
-            <MessageSquare size={17} /> Chat
-          </button>
-          <button aria-current={view === 'activity' ? 'page' : undefined} onClick={() => go('/activity')}>
-            <ActivityIcon size={17} /> Activity
-            {!!state.pending_approvals && <span className="count">{state.pending_approvals}</span>}
-          </button>
-          <button aria-current={view === 'routines' ? 'page' : undefined} onClick={() => go('/routines')}>
-            <CalendarClock size={17} /> Routines
-          </button>
-          <button aria-current={view === 'pages' ? 'page' : undefined} onClick={() => go('/pages')}>
-            <FileText size={17} /> Pages
-          </button>
-          <button aria-current={view === 'computer' ? 'page' : undefined} onClick={() => go(`/computer/${chatDot?.id ?? ''}`)}>
-            <Monitor size={17} /> Computers
-          </button>
-          <button aria-current={view === 'team' ? 'page' : undefined} onClick={() => go('/team')}>
-            <Settings2 size={17} /> Team and setup
-          </button>
+          <NavItem
+            active={view === 'chat'}
+            onClick={() => go(`/chat/${chatDot?.id ?? ''}`)}
+            icon={<MessageSquare size={17} />}
+            label="Chat"
+          />
+          <NavItem
+            active={view === 'activity'}
+            onClick={() => go('/activity')}
+            icon={<ActivityIcon size={17} />}
+            label="Activity"
+            count={state.pending_approvals}
+          />
+          <NavItem
+            active={view === 'routines'}
+            onClick={() => go('/routines')}
+            icon={<CalendarClock size={17} />}
+            label="Routines"
+          />
+          <NavItem active={view === 'pages'} onClick={() => go('/pages')} icon={<FileText size={17} />} label="Pages" />
+          <NavItem active={view === 'office'} onClick={() => go('/office')} icon={<Building2 size={17} />} label="Office" />
+          <NavItem
+            active={view === 'computer'}
+            onClick={() => go(`/computer/${chatDot?.id ?? ''}`)}
+            icon={<Monitor size={17} />}
+            label="Computers"
+          />
+          <NavItem
+            active={view === 'team'}
+            onClick={() => go('/team')}
+            icon={<Settings2 size={17} />}
+            label="Team and setup"
+          />
         </nav>
         {chatDot && (
           <div className="threads">
@@ -174,7 +248,15 @@ export function App() {
         )}
         <div className="sidebar-foot muted">
           <DotMark dot={{ name: 'Y', color: 'blue' }} size="s" />
-          {state.flags.paused ? 'Team paused' : `${state.dots.length} Dots on duty`}
+          <span className="grow">{state.flags.paused ? 'Team paused' : `${state.dots.length} Dots on duty`}</span>
+          <button
+            className="button ghost theme-toggle"
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
         </div>
       </aside>
       <main className="main">
@@ -195,35 +277,48 @@ export function App() {
             The team is paused. Running work stopped and routines wait until you resume.
           </p>
         )}
-        {view === 'activity' ? (
-          <ActivityView state={state} activity={activity} reload={refreshAll} />
-        ) : view === 'routines' ? (
-          <RoutinesView state={state} activity={activity} reload={refreshAll} threadId={route[1]} />
-        ) : view === 'pages' ? (
-          <PagesView state={state} spaceId={route[1]} pageId={route[2]} navigate={go} />
-        ) : view === 'computer' ? (
-          <ComputerView state={state} dotId={route[1]} navigate={go} />
-        ) : view === 'team' ? (
-          <TeamView state={state} onChanged={refreshAll} />
-        ) : chatDot ? (
-          <ChatView
-            key={chatDot.id}
-            state={state}
-            dot={chatDot}
-            threadId={threadId}
-            onThread={(id) => go(id ? `/chat/${chatDot.id}/${id}` : `/chat/${chatDot.id}`)}
-            onRefresh={refresh}
-            onRoutine={(id) => go(`/routines/${id}`)}
-            onComputer={() => go(`/computer/${chatDot.id}`)}
-          />
-        ) : (
-          <div className="empty">
-            <h2>No Dots yet</h2>
-            <button className="button primary" onClick={() => go('/team')}>
-              Set up your team
-            </button>
-          </div>
-        )}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={view === 'chat' || view === 'computer' ? `${view}/${chatDot?.id ?? ''}` : view}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+          >
+            {view === 'activity' ? (
+              <ActivityView state={state} activity={activity} reload={refreshAll} />
+            ) : view === 'routines' ? (
+              <RoutinesView state={state} activity={activity} reload={refreshAll} threadId={route[1]} />
+            ) : view === 'pages' ? (
+              <PagesView state={state} spaceId={route[1]} pageId={route[2]} navigate={go} />
+            ) : view === 'office' ? (
+              <OfficeView />
+            ) : view === 'computer' ? (
+              <ComputerView state={state} dotId={route[1]} navigate={go} />
+            ) : view === 'team' ? (
+              <TeamView state={state} onChanged={refreshAll} />
+            ) : chatDot ? (
+              <ChatView
+                key={chatDot.id}
+                state={state}
+                dot={chatDot}
+                threadId={threadId}
+                onThread={(id) => go(id ? `/chat/${chatDot.id}/${id}` : `/chat/${chatDot.id}`)}
+                onRefresh={refresh}
+                onRoutine={(id) => go(`/routines/${id}`)}
+                onComputer={() => go(`/computer/${chatDot.id}`)}
+              />
+            ) : (
+              <div className="empty">
+                <h2>No Dots yet</h2>
+                <button className="button primary" onClick={() => go('/team')}>
+                  Set up your team
+                </button>
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
       </main>
     </div>
   );

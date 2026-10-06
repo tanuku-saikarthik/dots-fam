@@ -10,6 +10,7 @@ from langchain_core.tools import BaseTool
 
 from ..context import DotContext
 from .exa import exa_tools
+from .local import local_tools
 from .pages import page_tools
 from .team import team_tools
 from .web import web_tools
@@ -31,6 +32,7 @@ def build_tools(ctx: DotContext) -> list[BaseTool]:
         tools += web_tools(ctx)
     if ctx.computers and ctx.computers.enabled_for(ctx.dot):
         tools += ctx.computers.tools(ctx)
+    tools += local_tools(ctx)
     tools += team_tools(ctx)
     for extension in ctx.extra.values():  # Slack and other integrations contribute tools
         if hasattr(extension, "tools"):
