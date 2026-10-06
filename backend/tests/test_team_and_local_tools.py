@@ -19,7 +19,9 @@ def test_safe_path_allows_paths_inside_the_project_folder(tmp_path):
     assert target == (tmp_path / "notes" / "todo.md").resolve()
 
 
-@pytest.mark.parametrize("escape", ["../outside.txt", "../../etc/passwd", "notes/../../outside.txt"])
+@pytest.mark.parametrize(
+    "escape", ["../outside.txt", "../../etc/passwd", "notes/../../outside.txt"]
+)
 def test_safe_path_refuses_anything_outside_the_project_folder(tmp_path, escape):
     with pytest.raises(PathEscape):
         safe_path(tmp_path, escape)
@@ -189,7 +191,9 @@ async def test_local_read_is_free_but_write_needs_approval(runtime, script, clie
     script.add("Vance", call("write_file", {"path": "notes.txt", "content": "updated"}), "Updated.")
     await runtime.runs.send(thread["id"], "Now update it")
     await finish(runtime, thread["id"])
-    [approval] = [a for a in runtime.store.approvals(thread_id=thread["id"]) if a["status"] == "pending"]
+    [approval] = [
+        a for a in runtime.store.approvals(thread_id=thread["id"]) if a["status"] == "pending"
+    ]
     assert approval["tool"] == "write_file"
     assert (tmp_path / "notes.txt").read_text() == "hello from the project"  # not written yet
 
@@ -203,7 +207,130 @@ async def test_a_dot_without_local_access_has_no_local_tools(runtime):
     from dotsfam.tools import build_tools
 
     mara = dot(runtime, "Mara")  # local not enabled by default
-    ctx = DotContext(store=runtime.store, settings=runtime.settings, dot=mara, thread_id="t", run_id="r")
+    ctx = DotContext(
+        store=runtime.store, settings=runtime.settings, dot=mara, thread_id="t", run_id="r"
+    )
     names = {tool.name for tool in build_tools(ctx)}
     assert "read_file" not in names
     assert "write_file" not in names
+
+
+# ---- review fixes: ways around the local-shell check, and reads outside the folder -------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ls\nrm -rf build",  # a second line runs too
+        "env rm -rf build",  # env runs any program
+        "find . -delete",
+        "find . -exec rm {} +",
+        "ls | xargs rm",
+        "ls & rm x",
+        "git branch -D main",
+        "git remote add evil https://x.example/r.git",
+        "git -c core.pager=sh log",
+        "git diff --output=../x",
+        "rg --pre ./run.sh TODO",
+        "sort -o notes.txt notes.txt",
+        "cat ~/.ssh/id_rsa",
+        "cat /etc/passwd",
+        "cat ../other-project/.env",
+        "grep -f /etc/passwd x",
+        "ls .*",
+        "cat .env",
+        "head -n 5 config/.env.local",
+        "echo $HOME",
+        "python -c 'print(1)'",
+        "cat 'unbalanced",
+    ],
+)
+def test_commands_that_could_change_or_leak_things_need_approval(command):
+    assert classify_command({"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["git log -5 --oneline", "git diff HEAD~1", "git branch -a", "git remote -v", "ls -la src",
+     "head -n 20 README.md", "cat .env.example", "find . -name '*.py'", "git log | head -20",
+     "python --version", "npm ls", "wc -l README.md"],
+)  # fmt: skip
+def test_plain_read_only_commands_stay_free(command):
+    assert classify_command({"command": command}) is None, command
+
+
+def test_recursive_search_asks_first_when_the_project_has_secrets(tmp_path):
+    (tmp_path / "app.py").write_text("TODO")
+    assert classify_command({"command": "grep -rn TODO ."}, tmp_path) is None
+    (tmp_path / ".env").write_text("API_KEY=abc")
+    from dotsfam.tools import local
+
+    local._SCAN_CACHE.clear()
+    reason = classify_command({"command": "grep -rn TODO ."}, tmp_path)
+    assert reason and ".env" in reason
+
+
+def test_symlinks_out_of_the_folder_are_not_free(tmp_path):
+    project, outside = tmp_path / "project", tmp_path / "outside"
+    project.mkdir()
+    outside.mkdir()
+    (outside / "notes.txt").write_text("private")
+    (project / "link.txt").symlink_to(outside / "notes.txt")
+    assert classify_command({"command": "cat link.txt"}, project)
+
+
+async def test_glob_grep_and_read_stay_inside_the_folder_and_away_from_secrets(runtime, tmp_path):
+    from dotsfam.context import DotContext
+    from dotsfam.tools import approval_reason
+    from dotsfam.tools.local import local_tools
+
+    project, outside = tmp_path / "project", tmp_path / "secret"
+    project.mkdir()
+    outside.mkdir()
+    (outside / "key.txt").write_text("TOP-SECRET")
+    (project / "app.py").write_text("token = load()  # TOP-SECRET handled elsewhere")
+    (project / ".env").write_text("API_KEY=TOP-SECRET")
+    vance = runtime.store.update_dot(
+        dot(runtime, "Vance")["id"], local={"enabled": True, "project_dir": str(project)}
+    )
+    ctx = DotContext(runtime.store, runtime.settings, vance, "t", "r")
+    tools = {tool.name: tool for tool in local_tools(ctx)}
+
+    for args in ({"pattern": "../secret/*"}, {"pattern": "/etc/*"}):
+        with pytest.raises(PathEscape):
+            await tools["glob_files"].ainvoke(args)
+    with pytest.raises(PathEscape):
+        await tools["grep_files"].ainvoke({"pattern": "SECRET", "glob": "../secret/*"})
+
+    found = await tools["grep_files"].ainvoke({"pattern": "TOP-SECRET"})
+    assert found.startswith("app.py:1:") and "API_KEY" not in found
+    assert "Skipped 1 file(s) that may hold secrets, e.g. .env" in found
+
+    assert approval_reason(ctx, tools["read_file"], {"path": "app.py"}) is None
+    assert approval_reason(ctx, tools["read_file"], {"path": ".env"}) == (
+        "reads a file that may hold secrets: .env"
+    )
+    assert approval_reason(ctx, tools["run_command"], {"command": "git status"}) is None
+    assert approval_reason(ctx, tools["run_command"], {"command": "cat ../secret/key.txt"})
+
+
+async def test_a_timed_out_command_takes_its_children_with_it(runtime, tmp_path):
+    import sys
+
+    if sys.platform == "win32":
+        pytest.skip("process groups are POSIX")
+    from dotsfam.context import DotContext
+    from dotsfam.tools.local import local_tools
+
+    vance = runtime.store.update_dot(
+        dot(runtime, "Vance")["id"], local={"enabled": True, "project_dir": str(tmp_path)}
+    )
+    ctx = DotContext(runtime.store, runtime.settings, vance, "t", "r")
+    run = {tool.name: tool for tool in local_tools(ctx)}["run_command"]
+    with pytest.raises(TimeoutError):
+        # A background child that would create late.txt 1.5 s in, while the shell blocks.
+        await run.ainvoke({"command": "(sleep 1.5; touch late.txt) & sleep 30", "timeout_seconds": 1})
+    import asyncio
+
+    await asyncio.sleep(1.2)
+    assert not (tmp_path / "late.txt").exists()

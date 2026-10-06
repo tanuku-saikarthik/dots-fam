@@ -225,8 +225,9 @@ function LocalCapability({ dot, onChanged }: { dot: Dot; onChanged: (dot: Dot) =
         <span>
           <strong>Give {dot.name} local Claude Code access</strong>
           <small>
-            Reads are free. Writing, editing, and any command that changes something still waits for your
-            approval — same Reversibility Law as everything else.
+            Reading is free, except files that may hold secrets (.env, keys). Writing, editing, and any
+            command that isn&apos;t simple and read-only wait for your approval, same Reversibility Law as
+            everything else.
           </small>
         </span>
       </label>
@@ -237,7 +238,10 @@ function LocalCapability({ dot, onChanged }: { dot: Dot; onChanged: (dot: Dot) =
           placeholder="/mnt/c/Users/you/projects/this-project"
           onChange={(e) => setDir(e.target.value)}
         />
-        <small>{dot.name} can only read and write inside this folder — nothing else on the computer.</small>
+        <small>
+          Free reads and read-only commands stay inside this folder. Anything that reaches outside it asks you
+          first.
+        </small>
       </label>
       {error && <p className="error">{error}</p>}
       <div className="row">
