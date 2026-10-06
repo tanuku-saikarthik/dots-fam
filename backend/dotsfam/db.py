@@ -32,7 +32,12 @@ CREATE TABLE IF NOT EXISTS dots(
   approval_mode TEXT NOT NULL DEFAULT 'reversible', research_allowed INTEGER NOT NULL DEFAULT 1,
   memory_allowed INTEGER NOT NULL DEFAULT 1, computer TEXT NOT NULL DEFAULT '{}',
   local TEXT NOT NULL DEFAULT '{}',
+  family TEXT NOT NULL DEFAULT 'office', created_by TEXT,
   space_id TEXT NOT NULL REFERENCES spaces(id), color TEXT NOT NULL DEFAULT 'blue',
+  created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS families(
+  name TEXT PRIMARY KEY COLLATE NOCASE, title TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'hub', flow TEXT NOT NULL DEFAULT '[]', created_by TEXT,
   created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS dot_spaces(
   dot_id TEXT NOT NULL REFERENCES dots(id) ON DELETE CASCADE,
@@ -124,6 +129,15 @@ class Store:
         existing_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(dots)")}
         if "local" not in existing_columns:
             self._db.execute("ALTER TABLE dots ADD COLUMN local TEXT NOT NULL DEFAULT '{}'")
+        if "family" not in existing_columns:
+            self._db.execute("ALTER TABLE dots ADD COLUMN family TEXT NOT NULL DEFAULT 'office'")
+        if "created_by" not in existing_columns:
+            self._db.execute("ALTER TABLE dots ADD COLUMN created_by TEXT")
+        delegation_columns = {
+            row["name"] for row in self._db.execute("PRAGMA table_info(delegations)")
+        }
+        if "kind" not in delegation_columns:
+            self._db.execute("ALTER TABLE delegations ADD COLUMN kind TEXT NOT NULL DEFAULT 'delegate'")
         # Delegated work cannot survive a restart mid-run; record that honestly.
         self._db.execute(
             "UPDATE delegations SET status='failed', error='Server restarted before this work finished.',"
@@ -245,6 +259,8 @@ class Store:
         memory_allowed: bool = True,
         space_ids: list[str] | None = None,
         color: str = "blue",
+        family: str = "office",
+        created_by: str | None = None,
     ) -> dict[str, Any]:
         self.space(space_id)
         if self.dot_by_name(name):
@@ -253,8 +269,8 @@ class Store:
         with self.tx() as db:
             db.execute(
                 "INSERT INTO dots(id, name, title, instructions, model, can_delegate, approval_mode,"
-                " research_allowed, memory_allowed, space_id, color, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " research_allowed, memory_allowed, space_id, color, created_at, family, created_by)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     dot_id,
                     name.strip(),
@@ -268,6 +284,8 @@ class Store:
                     space_id,
                     color,
                     now_ms(),
+                    family,
+                    created_by,
                 ),
             )
             for sid in sorted({space_id, *(space_ids or [])}):
@@ -730,7 +748,8 @@ class Store:
         delegation_id = new_id()
         self._run(
             "INSERT INTO delegations(id, group_id, parent_thread_id, worker_thread_id, from_dot_id, to_dot_id,"
-            " brief, expected_output, status, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)",
+            " brief, expected_output, status, model, created_at, kind)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)",
             delegation_id,
             values["group_id"],
             values.get("parent_thread_id"),
@@ -741,8 +760,16 @@ class Store:
             values.get("expected_output", ""),
             values.get("model"),
             now_ms(),
+            values.get("kind", "delegate"),
         )
         return self.delegation(delegation_id)
+
+    def count_peer_asks(self, parent_thread_id: str) -> int:
+        row = self._one(
+            "SELECT COUNT(*) AS n FROM delegations WHERE parent_thread_id=? AND kind='peer'",
+            parent_thread_id,
+        )
+        return int(row["n"]) if row else 0
 
     def delegation(self, delegation_id: str) -> dict[str, Any]:
         row = self._one("SELECT * FROM delegations WHERE id=?", delegation_id)
@@ -1015,3 +1042,47 @@ class Store:
 
     def remove_workspace(self, workspace_id: str) -> None:
         self._run("DELETE FROM workspaces WHERE id=?", workspace_id)
+
+    # ---- families (teams of Dots) -------------------------------------------------------
+    def families(self) -> list[dict[str, Any]]:
+        rows = self._all("SELECT * FROM families ORDER BY created_at")
+        for row in rows:
+            row["flow"] = json.loads(row["flow"] or "[]")
+        return rows
+
+    def family(self, name: str) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM families WHERE name=? COLLATE NOCASE", name)
+        if row:
+            row["flow"] = json.loads(row["flow"] or "[]")
+        return row
+
+    def save_family(
+        self,
+        name: str,
+        *,
+        title: str = "",
+        summary: str = "",
+        kind: str = "hub",
+        flow: list[dict[str, Any]] | None = None,
+        created_by: str | None = None,
+    ) -> dict[str, Any]:
+        self._run(
+            "INSERT INTO families(name, title, summary, kind, flow, created_by, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(name) DO UPDATE SET title=excluded.title, summary=excluded.summary,"
+            " kind=excluded.kind, flow=excluded.flow",
+            name.strip(),
+            title,
+            summary,
+            kind,
+            json.dumps(flow or []),
+            created_by,
+            now_ms(),
+        )
+        return self.family(name)  # type: ignore[return-value]
+
+    def family_members(self, name: str) -> list[dict[str, Any]]:
+        return [d for d in self.dots() if d["family"].lower() == name.lower()]
+
+    def delete_family(self, name: str) -> None:
+        self._run("DELETE FROM families WHERE name=? COLLATE NOCASE", name)

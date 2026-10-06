@@ -16,6 +16,7 @@ from typing import Any
 from .config import Settings
 from .context import Stopped
 from .db import Store, new_id
+from .family import reachable
 from .models import ModelSetupError, resolve
 from .runs import RunManager, RunOutcome
 
@@ -42,15 +43,18 @@ class DelegationManager:
         self._awaiting: set[str] = set()  # groups whose Chief is still waiting in-turn
         runs.on_finished(self._on_run_finished)
 
-    def roster(self, from_dot: dict[str, Any]) -> list[dict[str, Any]]:
-        return [dot for dot in self.store.dots() if dot["id"] != from_dot["id"]]
+    def roster(self, from_dot: dict[str, Any], as_worker: bool = False) -> list[dict[str, Any]]:
+        return reachable(self.store, from_dot, as_worker=as_worker)
 
-    def _target(self, from_dot: dict[str, Any], name: str) -> dict[str, Any]:
+    def _target(
+        self, from_dot: dict[str, Any], name: str, as_worker: bool = False
+    ) -> dict[str, Any]:
         key = name.strip().lower()
-        for dot in self.roster(from_dot):
+        roster = self.roster(from_dot, as_worker)
+        for dot in roster:
             if dot["id"] == name or dot["name"].lower() == key:
                 return dot
-        names = ", ".join(dot["name"] for dot in self.roster(from_dot)) or "empty"
+        names = ", ".join(dot["name"] for dot in roster) or "empty"
         raise DelegationError(f'No specialist named "{name}". Roster: {names}.')
 
     def _model(self, dot: dict[str, Any]) -> str | None:
@@ -143,14 +147,16 @@ class DelegationManager:
         *,
         wait_seconds: int = 120,
         cancelled: Callable[[], bool] = lambda: False,
+        as_worker: bool = False,
+        kind: str = "delegate",
     ) -> dict[str, Any]:
-        if not from_dot.get("can_delegate"):
+        if kind == "delegate" and not from_dot.get("can_delegate"):
             raise DelegationError(f"{from_dot['name']} is not allowed to delegate work.")
         if self.store.flags()["paused"]:
             raise Stopped("All Dots are paused.")
         if not 1 <= len(assignments) <= 5:
             raise DelegationError("Send between 1 and 5 assignments.")
-        targets = [self._target(from_dot, item["dot"]) for item in assignments]
+        targets = [self._target(from_dot, item["dot"], as_worker) for item in assignments]
         group_id = new_id()
         records = []
         for item, target in zip(assignments, targets, strict=True):
@@ -166,6 +172,7 @@ class DelegationManager:
                 brief=item["brief"],
                 expected_output=item.get("expected_output", ""),
                 model=self._model(target),
+                kind=kind,
             )
             self.store.add_event(
                 worker_thread["id"],
@@ -176,6 +183,37 @@ class DelegationManager:
         group = await self._run_and_wait(group_id, records, wait_seconds, cancelled)
         names = {dot["id"]: dot["name"] for dot in self.store.dots()}
         return self._format_result(group_id, group, lambda item: names.get(item["to_dot_id"], "Specialist"))
+
+    async def ask_peer(
+        self,
+        from_dot: dict[str, Any],
+        parent_thread_id: str | None,
+        peer: str,
+        question: str,
+        *,
+        wait_seconds: int = 90,
+        cancelled: Callable[[], bool] = lambda: False,
+    ) -> dict[str, Any]:
+        """Dot-to-Dot message inside one team. One hop (the peer runs as a worker and has no
+        team tools), and at most MAX_PEER_ASKS_PER_THREAD per conversation."""
+        from .tools.team import MAX_PEER_ASKS_PER_THREAD
+
+        used = self.store.count_peer_asks(parent_thread_id) if parent_thread_id else 0
+        if used >= MAX_PEER_ASKS_PER_THREAD:
+            raise DelegationError("Peer question limit reached for this conversation; finish with what you have.")
+        mine = (from_dot.get("family") or "office").lower()
+        target = self._target(from_dot, peer, as_worker=True)
+        if (target.get("family") or "office").lower() != mine:
+            raise DelegationError(f'"{peer}" is not on your team.')
+        return await self.dispatch(
+            from_dot,
+            parent_thread_id,
+            [{"dot": target["id"], "brief": question, "expected_output": "A direct, concise answer."}],
+            wait_seconds=wait_seconds,
+            cancelled=cancelled,
+            as_worker=True,
+            kind="peer",
+        )
 
     async def fan_out(
         self,

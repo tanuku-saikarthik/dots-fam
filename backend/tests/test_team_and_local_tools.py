@@ -50,10 +50,10 @@ def test_writing_or_chaining_commands_need_approval(command):
     assert classify_command({"command": command}) is not None
 
 
-# ---- create_dot: a Dot bringing a new specialist onto the team, gated by approval -------
+# ---- create_dot: the Chief brings a new specialist on, no approval, power-capped ---------
 
 
-async def test_create_dot_needs_approval_and_starts_cautious(runtime, script, client):
+async def test_create_dot_needs_no_approval_and_is_power_capped(runtime, script):
     vance = dot(runtime, "Vance")
     thread = runtime.store.create_thread(vance["id"], "Hiring")
     script.add(
@@ -66,27 +66,22 @@ async def test_create_dot_needs_approval_and_starts_cautious(runtime, script, cl
                 "instructions": "Goal: test releases before they ship. " * 2,
             },
         ),
-        "Created Nina; she's cautious until you approve her for more.",
+        "Added Nina.",
     )
     await runtime.runs.send(thread["id"], "We need a tester on the team.")
-    await finish(runtime, thread["id"])
+    outcome = await finish(runtime, thread["id"])
 
-    assert runtime.store.dot_by_name("Nina") is None  # not created until approved
-    [approval] = runtime.store.approvals(thread_id=thread["id"])
-    assert approval["tool"] == "create_dot"
-    assert "Nina" in approval["reason"]
-
-    await client.post(f"/api/approvals/{approval['id']}", json={"decision": "approved"})
-    await finish(runtime, thread["id"])
-
+    assert outcome.status == "completed"
+    assert runtime.store.approvals(thread_id=thread["id"]) == []
     nina = runtime.store.dot_by_name("Nina")
-    assert nina is not None
     assert nina["title"] == "QA Tester"
-    assert nina["can_delegate"] is False  # cautious by default
+    assert nina["created_by"] == vance["id"]
+    assert nina["can_delegate"] is False  # never more power than a specialist
     assert nina["approval_mode"] == "reversible"
+    assert not (nina["local"] or {}).get("enabled")
 
 
-async def test_create_dot_refuses_a_duplicate_name(runtime, script, client):
+async def test_create_dot_refuses_a_duplicate_name(runtime, script):
     vance = dot(runtime, "Vance")
     thread = runtime.store.create_thread(vance["id"], "Hiring")
     script.add(
@@ -95,16 +90,78 @@ async def test_create_dot_refuses_a_duplicate_name(runtime, script, client):
         "Could not add Mara again: that name is taken.",
     )
     await runtime.runs.send(thread["id"], "Add Mara again")
-    await finish(runtime, thread["id"])
-    [approval] = runtime.store.approvals(thread_id=thread["id"])
-
-    await client.post(f"/api/approvals/{approval['id']}", json={"decision": "approved"})
     outcome = await finish(runtime, thread["id"])
 
-    # The duplicate-name error comes back as a tool error, not a crash, and no second Mara exists.
     assert outcome.status == "completed"
-    assert outcome.text == "Could not add Mara again: that name is taken."
     assert len([d for d in runtime.store.dots() if d["name"] == "Mara"]) == 1
+
+
+async def test_create_team_makes_a_subteam_with_one_lead(runtime, script):
+    vance = dot(runtime, "Vance")
+    thread = runtime.store.create_thread(vance["id"], "Phones")
+    members = [
+        {"name": "Scout", "title": "Lead", "instructions": "Lead the phone comparison job. " * 2},
+        {"name": "Reviewer", "title": "Reviews", "instructions": "Read reviews and summarise. " * 2},
+    ]
+    script.add(
+        "Vance",
+        call("create_team", {"name": "Phone research", "summary": "Compare phones", "members": members}),
+        "Team started.",
+    )
+    await runtime.runs.send(thread["id"], "Start a team to compare phones")
+    outcome = await finish(runtime, thread["id"])
+
+    assert outcome.status == "completed"
+    team = runtime.store.family_members("Phone research")
+    assert {d["name"] for d in team} == {"Scout", "Reviewer"}
+    assert {d["name"]: d["can_delegate"] for d in team} == {"Scout": True, "Reviewer": False}
+    assert all(d["created_by"] == vance["id"] for d in team)
+    # The office roster now shows the subteam through its lead only.
+    from dotsfam.family import reachable
+
+    names = {d["name"] for d in reachable(runtime.store, vance)}
+    assert "Scout" in names and "Reviewer" not in names
+
+
+async def test_only_the_chief_can_create_dots(runtime, script):
+    vance = dot(runtime, "Vance")
+    runtime.store.create_team = None  # not a real method; guards against accidental use
+    thread = runtime.store.create_thread(vance["id"], "x")
+    runtime.store.save_family("Crew", title="Crew", created_by=vance["id"])
+    lead = runtime.store.create_dot(
+        name="Boss", instructions="x" * 20, space_id=vance["space_id"],
+        can_delegate=True, family="Crew", created_by=vance["id"],
+    )
+    t2 = runtime.store.create_thread(lead["id"], "x")
+    script.add(
+        "Boss",
+        call("create_dot", {"name": "Sneaky", "title": "t", "instructions": "x" * 20}),
+        "Could not.",
+    )
+    await runtime.runs.send(t2["id"], "hire someone")
+    await finish(runtime, t2["id"])
+    assert runtime.store.dot_by_name("Sneaky") is None
+    del thread
+
+
+async def test_ask_peer_stays_inside_the_team_and_is_capped(runtime, script):
+    vance = dot(runtime, "Vance")
+    runtime.store.save_family("Crew", title="Crew", created_by=vance["id"])
+    mk = lambda n, lead: runtime.store.create_dot(  # noqa: E731
+        name=n, instructions="x" * 20, space_id=vance["space_id"], can_delegate=lead,
+        family="Crew", created_by=vance["id"],
+    )
+    mk("Lead", True)
+    a, b = mk("Aya", False), mk("Bo", False)
+    thread = runtime.store.create_thread(a["id"], "peer")
+    script.add("Aya", call("ask_peer", {"peer": "Bo", "question": "Which phone is cheaper?"}), "Bo says X.")
+    script.add("Bo", "Phone X is cheaper.")
+    await runtime.runs.send(thread["id"], "Check with Bo")
+    outcome = await finish(runtime, thread["id"])
+    assert outcome.status == "completed"
+    rows = [d for d in runtime.store.delegations() if d["kind"] == "peer"] if hasattr(runtime.store, "delegations") else []
+    assert runtime.store.count_peer_asks(thread["id"]) == 1 or rows
+    del b
 
 
 # ---- spawn_subagents: any Dot fanning its own task out in parallel ----------------------

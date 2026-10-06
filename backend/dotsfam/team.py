@@ -155,6 +155,139 @@ def install_team(
     return {"space": space, "created": created, "existing": existing}
 
 
+HARNESS = "harness"
+HARNESS_SPACE = "Build HQ"
+HARNESS_TITLE = "Build harness"
+HARNESS_SUMMARY = (
+    "A planner, a builder and an independent verifier work against a written contract. "
+    "Nothing ships until the verifier passes it; failures loop back to the builder."
+)
+
+HARNESS_ROSTER: list[dict[str, Any]] = [
+    {
+        "name": "Iris",
+        "title": "Planner",
+        "chief": True,
+        "color": "blue",
+        "instructions": (
+            "Goal: turn the owner's coding request into a contract the rest of the harness can be held to, "
+            "then run the loop until the work passes or you hit the round limit.\n"
+            "Sources: the request, the project's README and code (read-only), and the Contract page in Build HQ.\n"
+            "Style: write the contract first: the goal, what is out of scope, and 3 to 7 acceptance checks, each "
+            "one something the Verifier can run or observe (a command and its expected result, or a page and "
+            "what it must show). Then delegate in order: Bram builds against the contract, Tess verifies it "
+            "independently, Wren ships it. Never ask Tess to grade work you already described as done.\n"
+            "Loop rule: when Tess fails the work, send her exact findings back to Bram as the next brief. At "
+            "most 3 build-verify rounds; after that, stop and tell the owner what is still failing.\n"
+            "Approval boundary: you plan and coordinate only. Pushing and pull requests are Wren's, and they "
+            "always ask the owner.\n"
+            "Cadence: whenever the owner or the Chief of Staff hands you code work."
+        ),
+    },
+    {
+        "name": "Bram",
+        "title": "Builder",
+        "chief": False,
+        "color": "orange",
+        "instructions": (
+            "Goal: implement exactly what the contract asks for, in small steps, on your own branch.\n"
+            "Sources: the contract in your brief, the project code, and test output.\n"
+            "Style: change, run the tests, commit. Prefer the smallest change that meets the checks. When the "
+            "brief carries findings from the Verifier, fix those first and say what you changed for each. Finish "
+            "with the branch name, the commits, and the test results you saw yourself.\n"
+            "Approval boundary: you never push and never open pull requests. That is Wren's job.\n"
+            "Cadence: when the Planner delegates a build or a rework round."
+        ),
+    },
+    {
+        "name": "Tess",
+        "title": "Verifier",
+        "chief": False,
+        "color": "mint",
+        "instructions": (
+            "Goal: independently decide whether the work meets the contract. You are the evaluator, not a second "
+            "builder, and you do not fix anything.\n"
+            "Sources: the contract and the branch. Do not trust the Builder's summary; run the checks yourself.\n"
+            "Style: for each acceptance check, run it and report PASS or FAIL with the evidence (command, output, "
+            "or what the page showed). Look for what the Builder would not: edge cases, missing tests, files "
+            "changed outside the contract. End with one line, VERDICT: PASS or VERDICT: FAIL, and for a fail, a "
+            "numbered list of exact findings the Builder can act on.\n"
+            "Approval boundary: read, run and report only. Never edit files.\n"
+            "Cadence: after every build round."
+        ),
+    },
+    {
+        "name": "Wren",
+        "title": "Release Engineer",
+        "chief": False,
+        "color": "purple",
+        "instructions": (
+            "Goal: hand a verified branch to the owner as a pull request.\n"
+            "Sources: the contract, the Verifier's PASS report, and the branch.\n"
+            "Style: check the Verifier passed before doing anything. Write a pull request description with what "
+            "changed, why, how it was verified, and what was left out of scope. Then call open_pull_request.\n"
+            "Approval boundary: pushing and opening the pull request always ask the owner. Never merge.\n"
+            "Cadence: only after a Verifier PASS."
+        ),
+    },
+]
+
+HARNESS_FLOW: list[dict[str, str]] = [
+    {"from": "Iris", "to": "Bram", "label": "contract", "kind": "flow"},
+    {"from": "Bram", "to": "Tess", "label": "branch ready", "kind": "flow"},
+    {"from": "Tess", "to": "Wren", "label": "verdict: pass", "kind": "pass"},
+    {"from": "Tess", "to": "Bram", "label": "verdict: fail, rework", "kind": "loop"},
+]
+
+HARNESS_SEED = (
+    "# Contract\n\nThe Planner copies this shape for each piece of work.\n\n"
+    "## Goal\n- _One sentence._\n\n## Out of scope\n- _What this will not touch._\n\n"
+    "## Acceptance checks\n| # | Check | How to verify | Expected |\n| --- | --- | --- | --- |\n"
+    "| 1 |  |  |  |\n\n## Rounds\n- _Round 1: build, verify, result._\n"
+)
+
+
+def install_harness(
+    store: Store, chief_model: str | None = None, worker_model: str | None = None
+) -> dict[str, Any]:
+    """The build harness: its own family of Dots with a plan, build, verify, ship structure."""
+    space = store.space_by_name(HARNESS_SPACE)
+    if not space:
+        space = store.create_space(
+            HARNESS_SPACE, "Contracts and verification notes for the build harness."
+        )
+        store.create_page(space["id"], "Contract", HARNESS_SEED, author="setup")
+    created, existing = [], []
+    for card in HARNESS_ROSTER:
+        current = store.dot_by_name(card["name"])
+        if current:
+            existing.append(current)
+            continue
+        dot = store.create_dot(
+            name=card["name"],
+            title=card["title"],
+            instructions=card["instructions"],
+            space_id=space["id"],
+            model=(chief_model if card["chief"] else worker_model) or None,
+            can_delegate=card["chief"],
+            color=card["color"],
+            family=HARNESS,
+        )
+        if card["name"] != "Iris":  # they code on a branch once the owner points them at a project
+            dot = store.update_dot(dot["id"], local={"mode": "build"})
+        created.append(dot)
+    by_name = {d["name"]: d["id"] for d in store.family_members(HARNESS)}
+    flow = [
+        {"from": by_name[e["from"]], "to": by_name[e["to"]], "label": e["label"], "kind": e["kind"]}
+        for e in HARNESS_FLOW
+        if e["from"] in by_name and e["to"] in by_name
+    ]
+    family = store.save_family(
+        HARNESS, title=HARNESS_TITLE, summary=HARNESS_SUMMARY, kind="harness", flow=flow
+    )
+    return {"space": space, "created": created, "existing": existing, "family": family}
+
+
 @dataclass
 class Blueprint:
     id: str
