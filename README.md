@@ -145,6 +145,36 @@ Give a Dot your project folder (Team and setup, Claude Code capabilities) and ti
 
 The project must be a git repository with at least one commit and a remote you can push to from the server.
 
+## Run it 24/7 for free (Oracle Cloud)
+
+Dots Fam only works while its server is on. A free [Oracle Cloud Always Free](https://www.oracle.com/cloud/free/) ARM VM (Ampere A1, up to 4 cores and 24 GB at the time of writing; check their current terms) is enough for the whole team.
+
+1. Create an **Ubuntu 24.04** VM on the A1 shape and SSH in.
+2. Run:
+
+```bash
+git clone https://github.com/tanuku-saikarthik/dots-fam && cd dots-fam
+./deploy/install.sh
+```
+
+3. Add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to `.env`, then `sudo systemctl restart dotsfam`.
+
+The script installs Docker, Python 3.12 (via uv) and Node, builds the web app and the two Docker images (Dot computers and the build sandbox), writes `.env` with a random `OWNER_TOKEN`, runs Dots Fam as a systemd service that restarts on failure and reboot, and sets up HTTPS. Re-running it updates; `./deploy/update.sh` pulls first.
+
+| `MODE=` | HTTPS | Opens ports | Best for |
+| --- | --- | --- | --- |
+| `tailscale` (default) | Private `*.ts.net` address, only your own devices | None | Just you. Install the Tailscale app on your phone |
+| `cloudflare` | Your hostname via a free Cloudflare Tunnel (`CF_TUNNEL_TOKEN`, `PUBLIC_URL`) | None | Public webhooks without opening ports |
+| `caddy` | Automatic certificate for your `DOMAIN` | 80 and 443 | You own a domain |
+| `none` | You provide it | None | Your own proxy |
+
+Notes:
+- The app listens on `127.0.0.1` only; the HTTPS front door is the only way in.
+- It runs on the host, not in a container, because it starts Docker containers for each Dot's computer and for build mode. Mounting the Docker socket into a container would give it root on the machine anyway.
+- `VOICE=1 ./deploy/install.sh` adds local voice (Whisper and Kokoro, wants 4+ GB RAM). Without it, voice is off; you can set `VOICE_STACK=openai` instead.
+- Phone calls and the microphone need HTTPS, which every mode above gives you except `none`.
+- Written for Ubuntu and Debian. The script's file and option handling is tested; the full install has not been run on a real Oracle VM yet.
+
 ## How it works
 
 ```
