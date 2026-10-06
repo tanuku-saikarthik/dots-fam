@@ -2,7 +2,6 @@ import { Suspense, useEffect, useState } from 'react';
 import { api, type AppState } from '../api';
 import { OfficeCanvas } from './scene/Office';
 import { TopBar } from './ui/TopBar';
-import { Roster } from './ui/Roster';
 import { ActivityLog } from './ui/ActivityLog';
 import { AgentDetail } from './ui/AgentDetail';
 import { useOfficeStore } from './store/officeStore';
@@ -43,20 +42,17 @@ export function OfficeView() {
 
   return (
     <div className="office-view">
-      <TopBar />
-      <div className="office-body">
-        <Roster />
-        <div className="office-canvas-wrap">
-          {ready ? (
-            <Suspense fallback={<div className="office-loading">Setting up the office…</div>}>
-              <OfficeCanvas />
-            </Suspense>
-          ) : (
-            <div className="office-loading">{error || 'Loading your team…'}</div>
-          )}
-          <AgentDetail />
-        </div>
+      <div className="office-stage">
+        {ready ? (
+          <Suspense fallback={<div className="office-loading">Setting up the office…</div>}>
+            <OfficeCanvas />
+          </Suspense>
+        ) : (
+          <div className="office-loading">{error || 'Loading your team…'}</div>
+        )}
+        <TopBar />
         <ActivityLog />
+        <AgentDetail />
       </div>
     </div>
   );

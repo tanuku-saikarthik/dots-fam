@@ -1,81 +1,77 @@
-import { useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, OrthographicCamera, ContactShadows, RoundedBox, MeshReflectorMaterial } from '@react-three/drei';
-import { EffectComposer, Bloom, Vignette, N8AO } from '@react-three/postprocessing';
+import { useEffect, useRef, useState } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { ContactShadows, Grid, Html, OrbitControls, OrthographicCamera, RoundedBox } from '@react-three/drei';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useOfficeStore } from '../store/officeStore';
-import { makeCellToWorld } from '../nav/layout';
+import { CELL_SIZE as CELL, makeCellToWorld } from '../nav/layout';
 import { dotColorHex } from '../events/types';
 import { Desk } from './Desk';
 import { Agent } from './Agent';
-import { HoloScreen } from './HoloScreen';
 import { AssignBeam } from './AssignBeam';
 
-function Floor({ width, depth }: { width: number; depth: number }) {
-  const w = width * 1.7 + 1.2;
-  const d = depth * 1.7 + 1.2;
+/** World-space box around every desk and stand point, plus a margin: the part of the office in use. */
+export function deskBounds(layout: NonNullable<ReturnType<typeof useOfficeStore.getState>['layout']>) {
+  const toWorld = makeCellToWorld(layout.width, layout.depth);
+  const points = layout.desks.flatMap((d) => [toWorld(d.cell), toWorld(d.standPoint)]);
+  const xs = points.map((p) => p[0]);
+  const zs = points.map((p) => p[1]);
+  const margin = 1.1;
+  const minX = Math.min(...xs) - margin, maxX = Math.max(...xs) + margin;
+  const minZ = Math.min(...zs) - margin, maxZ = Math.max(...zs) + margin;
+  return { cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2, w: maxX - minX, d: maxZ - minZ };
+}
+
+/** A floating dark stage with a faint grid, so the office reads as a lit set, not a room box. */
+function Floor() {
+  const layout = useOfficeStore((s) => s.layout);
+  if (!layout) return null;
+  const { cx, cz, w, d } = deskBounds(layout);
   return (
-    <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[w, d]} />
-        <MeshReflectorMaterial
-          color="#f6f5f1"
-          roughness={0.95}
-          blur={[400, 140]}
-          mixBlur={1}
-          mixStrength={4}
-          resolution={512}
-          depthScale={0.1}
-          minDepthThreshold={0.9}
-          metalness={0}
-          mirror={0}
-        />
+    <group position={[cx, 0, cz]}>
+      <RoundedBox args={[w, 0.24, d]} radius={0.08} position={[0, -0.12, 0]} receiveShadow>
+        <meshStandardMaterial color="#171a24" roughness={0.85} metalness={0.05} />
+      </RoundedBox>
+      <Grid
+        position={[0, 0.002, 0]}
+        args={[w - 0.2, d - 0.2]}
+        cellSize={CELL / 2}
+        cellThickness={0.6}
+        cellColor="#252a38"
+        sectionSize={CELL}
+        sectionThickness={1}
+        sectionColor="#2e3446"
+        fadeDistance={60}
+        infiniteGrid={false}
+      />
+    </group>
+  );
+}
+
+function CoordinatorDot({ id, toWorld }: { id: string; toWorld: (cell: { x: number; z: number }) => [number, number] }) {
+  const layout = useOfficeStore((s) => s.layout);
+  const color = useOfficeStore((s) => dotColorHex(s.dotMeta[id]?.color ?? 'purple'));
+  const orb = useRef<THREE.MeshStandardMaterial>(null);
+  useFrame((state) => {
+    const busy = useOfficeStore.getState().coordinatorQueue.length > 0;
+    if (orb.current) orb.current.emissiveIntensity = busy ? 0.8 + Math.sin(state.clock.elapsedTime * 3) * 0.2 : 0.35;
+  });
+  if (!layout) return null;
+  const desk = layout.deskByAgent[id];
+  const [sx, sz] = toWorld(desk.standPoint);
+  const [dx, dz] = toWorld(desk.cell);
+  const x = sx + (dx - sx) * 0.42;
+  const z = sz + (dz - sz) * 0.42;
+  return (
+    <group position={[x, 0, z]}>
+      <mesh position={[0, 0.84, 0]} castShadow>
+        <sphereGeometry args={[0.3, 48, 48]} />
+        <meshStandardMaterial ref={orb} color={color} emissive={color} emissiveIntensity={0.35} roughness={0.25} metalness={0.1} />
       </mesh>
-      {/* a soft inset rug under the desks, for warmth and depth cueing */}
-      <mesh position={[0, 0.003, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[w - 1.1, d - 1.1]} />
-        <meshStandardMaterial color="#efece4" roughness={1} />
+      <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={2}>
+        <circleGeometry args={[0.4, 40]} />
+        <meshBasicMaterial color={color} transparent opacity={0.16} depthWrite={false} />
       </mesh>
-      <mesh position={[0, 1.1, -d / 2]} receiveShadow castShadow>
-        <boxGeometry args={[w, 2.2, 0.12]} />
-        <meshStandardMaterial color="#e9e7e0" roughness={0.88} />
-      </mesh>
-      <mesh position={[-w / 2, 1.1, 0]} receiveShadow castShadow>
-        <boxGeometry args={[0.12, 2.2, d]} />
-        <meshStandardMaterial color="#e9e7e0" roughness={0.88} />
-      </mesh>
-      <mesh position={[w / 2, 1.1, 0]} receiveShadow castShadow>
-        <boxGeometry args={[0.12, 2.2, d]} />
-        <meshStandardMaterial color="#e9e7e0" roughness={0.88} />
-      </mesh>
-      {/* skirting accent line, a quiet touch of the brand accent */}
-      <mesh position={[0, 0.03, -d / 2 + 0.07]}>
-        <boxGeometry args={[w, 0.06, 0.02]} />
-        <meshStandardMaterial color="#8d7bff" emissive="#8d7bff" emissiveIntensity={0.35} roughness={0.4} />
-      </mesh>
-      <mesh position={[-w / 2 + 0.08, 1.3, -2]} rotation={[0, Math.PI / 2, 0]}>
-        <planeGeometry args={[1.6, 1]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.5} />
-      </mesh>
-      {[
-        [-w / 2 + 0.6, -d / 2 + 0.6],
-        [w / 2 - 0.6, -d / 2 + 0.6],
-      ].map(([x, z], i) => (
-        <group key={i} position={[x, 0, z]}>
-          <mesh position={[0, 0.18, 0]} castShadow receiveShadow>
-            <cylinderGeometry args={[0.16, 0.13, 0.36, 12]} />
-            <meshStandardMaterial color="#d8d3c8" roughness={0.85} />
-          </mesh>
-          <mesh position={[0, 0.5, 0]} castShadow>
-            <icosahedronGeometry args={[0.25, 1]} />
-            <meshStandardMaterial color="#6fa05a" roughness={0.75} />
-          </mesh>
-          <mesh position={[0, 0.34, 0]} castShadow>
-            <icosahedronGeometry args={[0.17, 1]} />
-            <meshStandardMaterial color="#84b56a" roughness={0.75} />
-          </mesh>
-        </group>
-      ))}
     </group>
   );
 }
@@ -89,6 +85,12 @@ function SceneContent() {
   const stepFrame = useOfficeStore((s) => s.stepFrame);
 
   useFrame((_, delta) => stepFrame(delta * 1000));
+  // drei's Html loses its content if it mounts before the canvas is attached; wait one frame.
+  const [labelsReady, setLabelsReady] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setLabelsReady(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   if (!layout || !coordinatorId) return null;
   const toWorld = makeCellToWorld(layout.width, layout.depth);
@@ -97,44 +99,48 @@ function SceneContent() {
 
   return (
     <>
-      <hemisphereLight args={['#fff7ea', '#cfd4e0', 0.42]} />
+      <hemisphereLight args={['#c9d3ff', '#0b0d14', 0.55]} />
       <directionalLight
-        position={[6, 9, 4]}
-        intensity={0.85}
-        color="#fff6e6"
+        position={[5, 10, 6]}
+        intensity={1.1}
+        color="#f2f4ff"
         castShadow
         shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-9}
-        shadow-camera-right={9}
-        shadow-camera-top={9}
-        shadow-camera-bottom={-9}
+        shadow-camera-left={-10}
+        shadow-camera-right={10}
+        shadow-camera-top={10}
+        shadow-camera-bottom={-10}
         shadow-bias={-0.0005}
-        shadow-radius={4}
       />
-      {/* cool rim light from the back, the app's accent color, for a touch of premium contrast */}
-      <directionalLight position={[-5, 4, -7]} intensity={0.22} color="#8d7bff" />
-      <ambientLight intensity={0.34} />
+      <ambientLight intensity={0.25} />
 
-      <Floor width={layout.width} depth={layout.depth} />
-      <ContactShadows position={[0, 0.002, 0]} opacity={0.4} scale={16} blur={2.4} far={2.2} />
+      <Floor />
+      <ContactShadows position={[0, 0.003, 0]} opacity={0.55} scale={20} blur={2.2} far={2} color="#000000" />
 
-      {layout.desks.map((desk) => {
-        const [x, z] = toWorld(desk.cell);
-        const isCoordinator = desk.id === coordinatorId;
+      {layout.desks.map((desk) => (
+        <Desk
+          key={desk.id}
+          desk={desk}
+          toWorld={toWorld}
+          accent={dotColorHex(dotMeta[desk.id]?.color ?? 'blue')}
+        />
+      ))}
+
+      <CoordinatorDot id={coordinatorId} toWorld={toWorld} />
+      {labelsReady && (() => {
+        const chief = layout.deskByAgent[coordinatorId];
+        const [sx, sz] = toWorld(chief.standPoint);
+        const [dx, dz] = toWorld(chief.cell);
+        const [lx, lz] = [sx + (dx - sx) * 0.42, sz + (dz - sz) * 0.42];
         return (
-          <group key={desk.id}>
-            <Desk desk={desk} toWorld={toWorld} accent={isCoordinator ? '#f5a524' : dotColorHex(dotMeta[desk.id]?.color ?? 'blue')} />
-            {!isCoordinator && (
-              <HoloScreen
-                agentId={desk.id}
-                color={dotColorHex(dotMeta[desk.id]?.color ?? 'blue')}
-                position={[x, desk.raised ? 1.25 : 1.05, z - (desk.facing === 0 ? 0.2 : -0.2)]}
-                rotationY={desk.facing}
-              />
-            )}
-          </group>
+          <Html position={[lx, 1.4, lz]} center zIndexRange={[20, 0]} pointerEvents="none">
+            <div className="office-label phase-chief">
+              <strong>{dotMeta[coordinatorId]?.name ?? 'Chief'}</strong>
+              <span>Chief of Staff</span>
+            </div>
+          </Html>
         );
-      })}
+      })()}
 
       {workerIds.map((id) => (
         <Agent
@@ -144,6 +150,7 @@ function SceneContent() {
           color={dotColorHex(dotMeta[id]?.color ?? 'blue')}
           deskByAgent={layout.deskByAgent}
           toWorld={toWorld}
+          showLabel={labelsReady}
         />
       ))}
 
@@ -198,26 +205,49 @@ function CoordinatorCards({
   );
 }
 
+/** Zoom the isometric camera so the whole office fills the stage, at any window size. */
+function FitCamera() {
+  const layout = useOfficeStore((s) => s.layout);
+  const { camera, size } = useThree();
+  useEffect(() => {
+    if (!layout) return;
+    const { cx, cz, w, d } = deskBounds(layout);
+    const span = w + d;
+    camera.zoom = Math.min(size.width / (span * 0.75), size.height / (span * 0.42 + 2.4));
+    camera.position.set(cx + 10, 10, cz + 10);
+    camera.lookAt(cx, 0.5, cz);
+    camera.updateProjectionMatrix();
+  }, [layout, camera, size.width, size.height]);
+  return null;
+}
+
+function Controls() {
+  const layout = useOfficeStore((s) => s.layout);
+  const center = layout ? deskBounds(layout) : { cx: 0, cz: 0 };
+  return (
+    <OrbitControls
+      makeDefault
+      target={[center.cx, 0.5, center.cz]}
+      enablePan={false}
+      minZoom={30}
+      maxZoom={220}
+      minPolarAngle={Math.PI / 6}
+      maxPolarAngle={Math.PI / 2.6}
+      minAzimuthAngle={-Math.PI / 3}
+      maxAzimuthAngle={Math.PI / 3}
+    />
+  );
+}
+
 export function OfficeCanvas() {
   return (
-    <Canvas shadows dpr={[1, 1.8]} gl={{ antialias: true }}>
-      <color attach="background" args={['#f1efe9']} />
-      <fog attach="fog" args={['#f1efe9', 15, 27]} />
-      <OrthographicCamera makeDefault position={[9, 9, 9]} zoom={52} near={0.1} far={60} onUpdate={(cam) => cam.lookAt(0, 0.4, 0)} />
+    <Canvas shadows dpr={[1, 2]} gl={{ antialias: true, alpha: true }}>
+      <OrthographicCamera makeDefault position={[10, 10, 10]} zoom={60} near={0.1} far={80} />
+      <FitCamera />
       <SceneContent />
-      <OrbitControls
-        enablePan={false}
-        minDistance={8}
-        maxDistance={16}
-        minPolarAngle={Math.PI / 5}
-        maxPolarAngle={Math.PI / 2.4}
-        minAzimuthAngle={-Math.PI / 4}
-        maxAzimuthAngle={Math.PI / 4}
-      />
-      <EffectComposer multisampling={0}>
-        <N8AO aoRadius={0.6} intensity={1.1} distanceFalloff={1} />
-        <Bloom luminanceThreshold={0.95} luminanceSmoothing={0.25} intensity={0.5} mipmapBlur radius={0.45} />
-        <Vignette eskil={false} offset={0.2} darkness={0.35} />
+      <Controls />
+      <EffectComposer multisampling={4}>
+        <Bloom luminanceThreshold={0.6} luminanceSmoothing={0.3} intensity={0.9} mipmapBlur radius={0.55} />
       </EffectComposer>
     </Canvas>
   );

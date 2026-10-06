@@ -1,7 +1,7 @@
 import { Grid, type GridCell } from './grid';
 import type { AgentId } from '../events/types';
 
-export const CELL_SIZE = 1.7;
+export const CELL_SIZE = 1.25;
 
 export interface DeskSpec {
   id: AgentId;

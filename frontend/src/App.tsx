@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity as ActivityIcon,
@@ -22,7 +22,9 @@ import { ComputerView } from './views/ComputerView';
 import { PagesView } from './views/PagesView';
 import { RoutinesView } from './views/RoutinesView';
 import { TeamView } from './views/TeamView';
-import { OfficeView } from './office/OfficeView';
+
+// The 3D office pulls in three.js; load it only when someone opens it.
+const OfficeView = lazy(() => import('./office/OfficeView').then((m) => ({ default: m.OfficeView })));
 
 function useHashRoute(): [string[], (path: string) => void] {
   const read = () => (location.hash.replace(/^#\/?/, '') || 'chat').split('/').filter(Boolean);
@@ -293,7 +295,9 @@ export function App() {
             ) : view === 'pages' ? (
               <PagesView state={state} spaceId={route[1]} pageId={route[2]} navigate={go} />
             ) : view === 'office' ? (
-              <OfficeView />
+              <Suspense fallback={<p className="muted" style={{ padding: 28 }}>Opening the office…</p>}>
+                <OfficeView />
+              </Suspense>
             ) : view === 'computer' ? (
               <ComputerView state={state} dotId={route[1]} navigate={go} />
             ) : view === 'team' ? (
