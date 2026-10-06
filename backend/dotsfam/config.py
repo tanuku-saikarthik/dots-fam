@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     voice_openai_voice: str = "alloy"
     voice_ice_servers: str = "stun:stun.l.google.com:19302"
 
+    # Calls: ring your phone when a Dot needs you, for free. Web push to the installed app
+    # (keys are generated on first start), and/or an ntfy topic (ntfy.sh app, alarm-style alert).
+    vapid_contact: str = "mailto:owner@example.com"
+    ntfy_topic: str | None = None
+    ntfy_server: str = "https://ntfy.sh"
+    ntfy_token: str | None = None
+
     @field_validator("default_timezone")
     @classmethod
     def _zone(cls, value: str) -> str:

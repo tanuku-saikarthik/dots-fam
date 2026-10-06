@@ -41,6 +41,7 @@ class Runtime:
         self.computers: Any = None
         self.slack: Any = None
         self.voice: Any = None
+        self.notifier: Any = None
         if not store.dots():
             install_team(store, settings.default_model, settings.worker_model)
 
@@ -98,6 +99,9 @@ class Runtime:
     def attach_computers(self, manager: Any) -> None:
         self.computers = manager
         self.runs.computers = manager
+
+    def attach_notifier(self, notifier: Any) -> None:
+        self.notifier = notifier
 
     def attach_voice(self, voice: Any) -> None:
         self.voice = voice

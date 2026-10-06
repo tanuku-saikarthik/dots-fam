@@ -25,6 +25,7 @@ dependencies = [
   "beautifulsoup4>=4.12",
   "croniter>=2.0",
   "aiosqlite>=0.20",
+  "pywebpush>=2.0",
 ]
 
 [project.optional-dependencies]

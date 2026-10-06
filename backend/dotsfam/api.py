@@ -189,6 +189,12 @@ class VoiceIce(BaseModel):
     candidates: list[dict[str, Any]] = Field(max_length=50)
 
 
+class PushDevice(BaseModel):
+    endpoint: str = Field(min_length=10, max_length=2000)
+    keys: dict[str, str] = Field(default_factory=dict)
+    label: str = Field("", max_length=80)
+
+
 class VoiceHangup(BaseModel):
     pc_id: str = Field(max_length=200)
 
@@ -352,7 +358,13 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
             if not dot.get("research_allowed"):
                 dot = store.update_dot(dot_id, research_allowed=True)
             if runtime.computers is not None:
-                perms = {**runtime.computers.permissions(dot), "enabled": True, "browser": True, "files": True, "shell": True}
+                perms = {
+                    **runtime.computers.permissions(dot),
+                    "enabled": True,
+                    "browser": True,
+                    "files": True,
+                    "shell": True,
+                }
                 dot = store.update_dot(dot_id, computer=perms)
         return dot
 
@@ -708,6 +720,51 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
     @api.post("/voice/hangup")
     async def voice_hangup(body: VoiceHangup) -> dict[str, bool]:
         return {"ok": await voice().hangup(body.pc_id)}
+
+    # -- calls: ring the owner's phone (web push / ntfy) ---------------------------------
+    def notifier() -> Any:
+        if runtime.notifier is None:
+            raise HTTPException(404, "Calls are off on this server.")
+        return runtime.notifier
+
+    @api.get("/calls")
+    async def calls_status() -> dict[str, Any]:
+        n = notifier()
+        return {**n.status(), "public_key": await asyncio.to_thread(n.public_key)}
+
+    @api.post("/calls/devices", status_code=201)
+    async def add_device(body: PushDevice) -> dict[str, Any]:
+        if not {"p256dh", "auth"} <= body.keys.keys():
+            raise HTTPException(400, "That subscription is missing its keys.")
+        store.add_push_subscription(body.endpoint, body.keys, body.label)
+        return notifier().status()
+
+    @api.post("/calls/devices/remove")
+    async def remove_device(body: PushDevice) -> dict[str, Any]:
+        store.remove_push_subscription(body.endpoint)
+        return notifier().status()
+
+    @api.post("/calls/test")
+    async def test_call() -> dict[str, Any]:
+        n = notifier()
+        if not store.push_subscriptions() and not runtime.settings.ntfy_topic:
+            raise HTTPException(
+                409, "Nothing to ring yet. Turn on calls on your phone, or set NTFY_TOPIC."
+            )
+        chief = next((d for d in store.dots() if d["can_delegate"]), None) or store.dots()[0]
+        thread = next((t for t in store.threads(chief["id"])), None) or store.create_thread(
+            chief["id"], "Calls"
+        )
+        sent = await n.ring(chief, thread["id"], "This is a test call. Answer to talk to me.")
+        if not sent["push"] and not sent["ntfy"]:
+            raise HTTPException(502, "The call didn't go through. Check the server log.")
+        return sent
+
+    @api.get("/calls/{thread_id}")
+    async def incoming(thread_id: str) -> dict[str, Any]:
+        thread = store.thread(thread_id)
+        lines = notifier().pending_for(runtime.root_thread(thread_id))
+        return {"thread": thread, "dot": store.dot(thread["dot_id"]), "waiting": lines}
 
     app.include_router(api)
 

@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS triggers(
   prompt TEXT NOT NULL, secret TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
   fire_count INTEGER NOT NULL DEFAULT 0, last_fired_at INTEGER, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS trigger_fires(trigger_id TEXT NOT NULL, fired_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS push_subscriptions(
+  endpoint TEXT PRIMARY KEY, keys TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS slack_threads(
   channel TEXT NOT NULL, ts TEXT NOT NULL, thread_id TEXT NOT NULL, PRIMARY KEY(channel, ts));
 """
@@ -954,6 +956,25 @@ class Store:
 
     def bind_slack_thread(self, channel: str, ts: str, thread_id: str) -> None:
         self._run("INSERT OR REPLACE INTO slack_threads VALUES (?, ?, ?)", channel, ts, thread_id)
+
+    # ---- push subscriptions (phones and browsers that can ring) --------------
+    def add_push_subscription(self, endpoint: str, keys: dict[str, str], label: str = "") -> None:
+        self._run(
+            "INSERT OR REPLACE INTO push_subscriptions VALUES (?, ?, ?, ?)",
+            endpoint,
+            json.dumps(keys),
+            label[:80],
+            now_ms(),
+        )
+
+    def push_subscriptions(self) -> list[dict[str, Any]]:
+        rows = self._all("SELECT * FROM push_subscriptions ORDER BY created_at")
+        for row in rows:
+            row["keys"] = json.loads(row["keys"])
+        return rows
+
+    def remove_push_subscription(self, endpoint: str) -> None:
+        self._run("DELETE FROM push_subscriptions WHERE endpoint=?", endpoint)
 
     def slack_binding(self, thread_id: str) -> dict[str, str] | None:
         """The Slack thread a conversation started in (the first binding wins)."""

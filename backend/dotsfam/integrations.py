@@ -19,6 +19,9 @@ async def attach_integrations(runtime: Runtime) -> None:
         from .voice import VoiceManager  # Pipecat itself is imported only when a call starts
 
         runtime.attach_voice(VoiceManager(runtime))
+    from .notify import Notifier  # free phone alerts: web push and/or ntfy
+
+    runtime.attach_notifier(Notifier(runtime))
     if settings.slack_bot_token and settings.slack_app_token:
         try:
             from .slack import SlackBridge
