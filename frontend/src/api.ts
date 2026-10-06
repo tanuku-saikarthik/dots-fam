@@ -245,3 +245,43 @@ export const when = (ms: number | null | undefined) =>
         minute: '2-digit',
       })
     : '';
+
+export interface GraphNode {
+  id: string;
+  name: string;
+  title: string;
+  color: string;
+  family: string;
+  lead: boolean;
+  created_by: string | null;
+  state: 'idle' | 'working' | 'waiting';
+}
+export interface GraphEdge {
+  from: string;
+  to: string;
+  label: string;
+  kind: 'flow' | 'pass' | 'loop';
+}
+export interface GraphFamily {
+  name: string;
+  title: string;
+  summary: string;
+  kind: 'hub' | 'harness' | 'pipeline';
+  created_by: string | null;
+  members: string[];
+  lead: string | null;
+  flow: GraphEdge[];
+}
+export interface GraphLive {
+  from: string;
+  to: string;
+  kind: 'delegate' | 'peer';
+  count: number;
+  running: number;
+  waiting: number;
+}
+export interface GraphData {
+  nodes: GraphNode[];
+  families: GraphFamily[];
+  live: GraphLive[];
+}

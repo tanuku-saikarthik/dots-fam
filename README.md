@@ -145,6 +145,24 @@ Give a Dot your project folder (Team and setup, Claude Code capabilities) and ti
 
 The project must be a git repository with at least one commit and a remote you can push to from the server.
 
+## Teams with their own structure
+
+The office is a hub: a Chief of Staff and specialists. Next to it you can add the **build harness**, a separate team with a pipeline instead of a hub:
+
+- **Iris (Planner)** writes a contract with acceptance checks.
+- **Bram (Builder)** codes on a branch, in build mode.
+- **Tess (Verifier)** runs the checks on her own and answers PASS or FAIL.
+- **Wren (Release Engineer)** opens the pull request, which still asks you first.
+
+A FAIL goes back to Bram (up to 3 rounds). Nothing ships until Tess passes it. Add it from **Team graph**, or `POST /api/team/install-harness`.
+
+Ask the Chief of Staff for something no one on the team does and it brings in a new Dot, or a whole subteam (2-6 Dots, the first leads). No approval is needed because a created Dot can never exceed its creator: it can't delegate (only a subteam lead can, inside that team), has no computer or project access, and risky actions still ask you. Limits: 12 created Dots, 4 subteams, 6 Dots per team. Teammates can ask each other directly (`ask_peer`, one hop, 6 per conversation).
+
+The **Team graph** page shows every team, its structure, and live work (the rework loop lights up when a check fails). **Office** has a tab per team, so the 3D scene shows the same handoffs.
+
+![Rework loop](docs/screenshots/graph-rework.png)
+![Harness in the office](docs/screenshots/office-harness.png)
+
 ## Run it 24/7 for free (Oracle Cloud)
 
 Dots Fam only works while its server is on. A free [Oracle Cloud Always Free](https://www.oracle.com/cloud/free/) ARM VM (Ampere A1, up to 4 cores and 24 GB at the time of writing; check their current terms) is enough for the whole team.

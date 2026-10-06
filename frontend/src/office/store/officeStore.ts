@@ -82,7 +82,7 @@ interface OfficeState {
   setPlaying: (playing: boolean) => void;
   setSpeed: (speed: number) => void;
   selectAgent: (id: AgentId | null) => void;
-  connect: (mode: 'live' | 'demo') => void;
+  connect: (mode: 'live' | 'demo', ids?: string[]) => void;
 }
 
 let source: EventSource | null = null;
@@ -261,11 +261,11 @@ export const useOfficeStore = create<OfficeState>((set, get) => ({
   selectAgent(id) {
     set({ selectedAgent: id });
   },
-  connect(mode) {
+  connect(mode, ids) {
     source?.stop();
     const state = get();
     if (mode === 'live') {
-      const live = new LiveSource();
+      const live = new LiveSource(ids ? new Set(ids) : undefined);
       source = live;
       set({ sourceMode: 'live', connectionStatus: 'live' });
       live.start((event) => get().applyEvent(event));

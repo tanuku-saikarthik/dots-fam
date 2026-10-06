@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useState } from 'react';
-import { api, type AppState } from '../api';
+import { api, type GraphData } from '../api';
 import { OfficeCanvas } from './scene/Office';
 import { TopBar } from './ui/TopBar';
 import { ActivityLog } from './ui/ActivityLog';
@@ -8,29 +8,33 @@ import { useOfficeStore } from './store/officeStore';
 import type { DotMeta } from './events/types';
 import './office.css';
 
-export function OfficeView() {
+export function OfficeView({ family = 'office', navigate }: { family?: string; navigate?: (path: string) => void }) {
   const ready = useOfficeStore((s) => s.ready);
   const initRoster = useOfficeStore((s) => s.initRoster);
   const connect = useOfficeStore((s) => s.connect);
   const [error, setError] = useState('');
+  const [families, setFamilies] = useState<GraphData['families']>([]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const state = await api<AppState>('/state');
+        const graph = await api<GraphData>('/graph');
         if (cancelled) return;
-        if (!state.dots.length) {
+        setFamilies(graph.families);
+        const team = graph.families.find((f) => f.name === family) ?? graph.families[0];
+        if (!team) {
           setError('No Dots yet — set up your team first.');
           return;
         }
-        const coordinator = state.dots.find((d) => d.can_delegate) ?? state.dots[0];
-        const workers = state.dots.filter((d) => d.id !== coordinator.id);
+        const members = team.members.map((id) => graph.nodes.find((n) => n.id === id)).filter((n) => !!n);
+        const coordinator = members.find((d) => d.id === team.lead) ?? members[0];
+        const workers = members.filter((d) => d.id !== coordinator.id);
         const dotMeta = Object.fromEntries(
-          state.dots.map((d): [string, DotMeta] => [d.id, { id: d.id, name: d.name, title: d.title, color: d.color }]),
+          members.map((d): [string, DotMeta] => [d.id, { id: d.id, name: d.name, title: d.title, color: d.color }]),
         );
         initRoster(coordinator.id, workers.map((d) => d.id), dotMeta);
-        connect('live');
+        connect('live', members.map((d) => d.id));
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load your team.');
       }
@@ -38,7 +42,7 @@ export function OfficeView() {
     return () => {
       cancelled = true;
     };
-  }, [initRoster, connect]);
+  }, [initRoster, connect, family]);
 
   return (
     <div className="office-view">
@@ -49,6 +53,20 @@ export function OfficeView() {
           </Suspense>
         ) : (
           <div className="office-loading">{error || 'Loading your team…'}</div>
+        )}
+        {families.length > 1 && (
+          <nav className="office-teams" aria-label="Teams">
+            {families.map((f) => (
+              <button
+                key={f.name}
+                className={f.name === family ? 'on' : ''}
+                onClick={() => navigate?.(`/office/${f.name}`)}
+              >
+                {f.title}
+              </button>
+            ))}
+            <button onClick={() => navigate?.('/graph')}>Graph</button>
+          </nav>
         )}
         <TopBar />
         <ActivityLog />

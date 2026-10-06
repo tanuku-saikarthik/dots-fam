@@ -14,6 +14,13 @@ export class LiveSource implements EventSource {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private onEvent: ((event: OfficeEvent) => void) | null = null;
 
+  /** Only show this team: Dots outside it (another family) never appear in its office. */
+  constructor(private readonly ids?: Set<string>) {}
+
+  private inTeam(id: string) {
+    return !this.ids || this.ids.has(id);
+  }
+
   private seenDelegations = new Map<string, Delegation['status']>();
   private soloWorking = new Set<string>();
 
@@ -47,6 +54,7 @@ export class LiveSource implements EventSource {
     if (!emit) return;
 
     for (const delegation of activity.delegations) {
+      if (!this.inTeam(delegation.from_dot_id) || !this.inTeam(delegation.to_dot_id)) continue;
       const prevStatus = this.seenDelegations.get(delegation.id);
       if (prevStatus === undefined) {
         // First time we've seen this delegation: it's already in flight by the time we poll,
@@ -76,9 +84,9 @@ export class LiveSource implements EventSource {
     // Dots actively running a thread with no open delegation (e.g. answering directly) still
     // show up as "working" at their own desk so the office never looks falsely idle.
     const busyFromDelegation = new Set(
-      activity.delegations.filter((d) => !d.finished_at).map((d) => d.to_dot_id),
+      activity.delegations.filter((d) => !d.finished_at && this.inTeam(d.to_dot_id)).map((d) => d.to_dot_id),
     );
-    for (const dotId of state.working_dots) {
+    for (const dotId of state.working_dots.filter((id) => this.inTeam(id))) {
       if (busyFromDelegation.has(dotId)) continue;
       if (!this.soloWorking.has(dotId)) {
         this.soloWorking.add(dotId);
@@ -93,7 +101,7 @@ export class LiveSource implements EventSource {
     }
 
     for (const [dotId, count] of Object.entries(state.waiting_by_dot)) {
-      if (count > 0) emit({ type: 'agent_waiting', agent: dotId, reason: 'Waiting on your approval' });
+      if (count > 0 && this.inTeam(dotId)) emit({ type: 'agent_waiting', agent: dotId, reason: 'Waiting on your approval' });
     }
   }
 }

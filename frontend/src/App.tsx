@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity as ActivityIcon,
   Building2,
+  Network,
   CalendarClock,
   FileText,
   Menu,
@@ -19,6 +20,7 @@ import { TeamLine } from './components/TeamLine';
 import { ActivityView } from './views/ActivityView';
 import { ChatView } from './views/ChatView';
 import { ComputerView } from './views/ComputerView';
+import { GraphView } from './views/GraphView';
 import { IncomingCall } from './views/IncomingCall';
 import { PagesView } from './views/PagesView';
 import { RoutinesView } from './views/RoutinesView';
@@ -218,6 +220,7 @@ export function App() {
             label="Routines"
           />
           <NavItem active={view === 'pages'} onClick={() => go('/pages')} icon={<FileText size={17} />} label="Pages" />
+          <NavItem active={view === 'graph'} onClick={() => go('/graph')} icon={<Network size={17} />} label="Team graph" />
           <NavItem active={view === 'office'} onClick={() => go('/office')} icon={<Building2 size={17} />} label="Office" />
           <NavItem
             active={view === 'computer'}
@@ -304,9 +307,11 @@ export function App() {
               <RoutinesView state={state} activity={activity} reload={refreshAll} threadId={route[1]} />
             ) : view === 'pages' ? (
               <PagesView state={state} spaceId={route[1]} pageId={route[2]} navigate={go} />
+            ) : view === 'graph' ? (
+              <GraphView navigate={go} />
             ) : view === 'office' ? (
               <Suspense fallback={<p className="muted" style={{ padding: 28 }}>Opening the office…</p>}>
-                <OfficeView />
+                <OfficeView key={route[1] ?? 'office'} family={route[1] ?? 'office'} navigate={go} />
               </Suspense>
             ) : view === 'computer' ? (
               <ComputerView state={state} dotId={route[1]} navigate={go} />

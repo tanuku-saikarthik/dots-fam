@@ -152,6 +152,7 @@ def install_team(
                 color=card["color"],
             )
         )
+    store.save_family("office", title="Office", summary="The Chief of Staff and specialists.", kind="hub")
     return {"space": space, "created": created, "existing": existing}
 
 

@@ -17,6 +17,7 @@ from sse_starlette.sse import EventSourceResponse
 from .context import Stopped
 from .db import Conflict, NotFound
 from .delegation import DelegationError
+from .family import OFFICE, flow_edges
 from .models import (
     SUGGESTED_MODELS,
     ModelSetupError,
@@ -27,7 +28,7 @@ from .models import (
 from .runs import Busy
 from .runtime import Runtime
 from .schedule import valid_timezone, validate_cron
-from .team import BLUEPRINTS, ROSTER, install_blueprint, install_team
+from .team import BLUEPRINTS, ROSTER, install_blueprint, install_harness, install_team
 from .webhooks import Unauthorized, build_prompt, event_name, verify
 from .workspace import discard_workspace, repo_root, sandbox_available, workspace_changes
 
@@ -586,6 +587,78 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
     @api.post("/team/install", status_code=201)
     async def team_install(body: TeamInstall) -> dict[str, Any]:
         return install_team(store, body.chief_model, body.worker_model or settings.worker_model)
+
+    @api.post("/team/install-harness", status_code=201)
+    async def harness_install(body: TeamInstall) -> dict[str, Any]:
+        return install_harness(store, body.chief_model, body.worker_model or settings.worker_model)
+
+    @api.get("/graph")
+    async def graph() -> dict[str, Any]:
+        """Everything the graph and the office need: families, their declared structure,
+        live work between Dots, and who is working or waiting right now."""
+        dots = store.dots()
+        working: set[str] = set()
+        for active in runtime.runs.active_runs():
+            try:
+                working.add(store.thread(active.thread_id)["dot_id"])
+            except NotFound:
+                continue
+        waiting = {a["dot_id"] for a in store.approvals(limit=500) if a["status"] == "pending"}
+        rows = {f["name"].lower(): f for f in store.families()}
+        names = [OFFICE] + [n for n in rows if n != OFFICE]
+        for dot in dots:  # a family that has Dots but no row still shows up
+            fam = (dot.get("family") or OFFICE).lower()
+            if fam not in names:
+                names.append(fam)
+        families = []
+        for name in names:
+            members = [d for d in dots if (d.get("family") or OFFICE).lower() == name]
+            if not members:
+                continue
+            row = rows.get(name)
+            families.append(
+                {
+                    "name": name,
+                    "title": (row or {}).get("title") or ("Office" if name == OFFICE else name),
+                    "summary": (row or {}).get("summary", ""),
+                    "kind": (row or {}).get("kind", "hub"),
+                    "created_by": (row or {}).get("created_by"),
+                    "members": [d["id"] for d in members],
+                    "lead": next((d["id"] for d in members if d["can_delegate"]), None),
+                    "flow": flow_edges(store, row, members),
+                }
+            )
+        live: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for item in store.delegations(120):
+            key = (item["from_dot_id"], item["to_dot_id"], item.get("kind") or "delegate")
+            edge = live.setdefault(
+                key,
+                {"from": key[0], "to": key[1], "kind": key[2], "count": 0, "running": 0, "waiting": 0},
+            )
+            edge["count"] += 1
+            edge["running"] += item["status"] == "running"
+            edge["waiting"] += item["status"] == "waiting_approval"
+        return {
+            "nodes": [
+                {
+                    "id": d["id"],
+                    "name": d["name"],
+                    "title": d["title"],
+                    "color": d["color"],
+                    "family": (d.get("family") or OFFICE).lower(),
+                    "lead": bool(d["can_delegate"]),
+                    "created_by": d.get("created_by"),
+                    "state": "waiting"
+                    if d["id"] in waiting
+                    else "working"
+                    if d["id"] in working
+                    else "idle",
+                }
+                for d in dots
+            ],
+            "families": families,
+            "live": list(live.values()),
+        }
 
     @api.post("/blueprints/{blueprint_id}/install", status_code=201)
     async def blueprint_install(

@@ -136,7 +136,7 @@ function SceneContent() {
           <Html position={[lx, 1.4, lz]} center zIndexRange={[20, 0]} pointerEvents="none">
             <div className="office-label phase-chief">
               <strong>{dotMeta[coordinatorId]?.name ?? 'Chief'}</strong>
-              <span>Chief of Staff</span>
+              <span>{dotMeta[coordinatorId]?.title || 'Team lead'}</span>
             </div>
           </Html>
         );

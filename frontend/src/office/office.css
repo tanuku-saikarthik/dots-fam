@@ -323,3 +323,14 @@
   .office-stage { min-height: 70vh; }
   .office-stage .office-log { max-height: 30%; }
 }
+
+.office-teams {
+  position: absolute; left: 16px; top: 16px; z-index: 5; display: flex; gap: 4px; padding: 4px;
+  border-radius: 12px; background: rgba(20, 20, 30, 0.72); backdrop-filter: blur(8px);
+}
+.office-teams button {
+  border: 0; border-radius: 9px; padding: 6px 12px; background: transparent; color: #d7d8ea;
+  font: inherit; font-size: 0.85rem; cursor: pointer;
+}
+.office-teams button.on { background: #f2f1fa; color: #14161f; font-weight: 600; }
+.office-teams button:focus-visible { outline: 2px solid #8fb2ff; }
