@@ -181,9 +181,10 @@ function DotForm({ state, dot, onSaved }: { state: AppState; dot?: Dot; onSaved:
   );
 }
 
-function LocalCapability({ dot, onChanged }: { dot: Dot; onChanged: (dot: Dot) => void }) {
+function LocalCapability({ dot, state, onChanged }: { dot: Dot; state: AppState; onChanged: (dot: Dot) => void }) {
   const [enabled, setEnabled] = useState(!!dot.local?.enabled);
   const [dir, setDir] = useState(dot.local?.project_dir ?? '');
+  const [mode, setMode] = useState<'ask' | 'build'>(dot.local?.mode ?? 'ask');
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
   const lastDotId = useRef(dot.id);
@@ -191,6 +192,7 @@ function LocalCapability({ dot, onChanged }: { dot: Dot; onChanged: (dot: Dot) =
     lastDotId.current = dot.id;
     setEnabled(!!dot.local?.enabled);
     setDir(dot.local?.project_dir ?? '');
+    setMode(dot.local?.mode ?? 'ask');
     setError('');
     setSaved(false);
   }
@@ -205,6 +207,7 @@ function LocalCapability({ dot, onChanged }: { dot: Dot; onChanged: (dot: Dot) =
           const result = await api<Dot>(`/local/${dot.id}`, 'PATCH', {
             enabled,
             project_dir: dir.trim() || null,
+            mode,
           });
           setSaved(true);
           onChanged(result);
@@ -243,6 +246,19 @@ function LocalCapability({ dot, onChanged }: { dot: Dot; onChanged: (dot: Dot) =
           Free reads and read-only commands stay inside this folder. Anything that reaches outside it asks you
           first.
         </small>
+      </label>
+      <label className="check full">
+        <input type="checkbox" checked={mode === 'build'} onChange={(e) => setMode(e.target.checked ? 'build' : 'ask')} />
+        <span>
+          <strong>Build mode: {dot.name} codes on its own git branch</strong>
+          <small>
+            Writing files, installing, building, testing and committing are free, on a branch in a separate
+            copy of the project. Your checkout and .env are never touched. {dot.name} only asks before pushing
+            the branch and opening a pull request. The project folder must be a git repository.
+            {state.setup.build_sandbox === false &&
+              ' Docker was not found on this server, so commands will run directly on it and ask first.'}
+          </small>
+        </span>
       </label>
       {error && <p className="error">{error}</p>}
       <div className="row">
@@ -368,6 +384,7 @@ export function TeamView({ state, onChanged }: { state: AppState; onChanged: () 
           {dot && (
             <LocalCapability
               dot={dot}
+              state={state}
               onChanged={(saved) => {
                 onChanged();
                 setSelected(saved.id);

@@ -29,6 +29,7 @@ from .runtime import Runtime
 from .schedule import valid_timezone, validate_cron
 from .team import BLUEPRINTS, ROSTER, install_blueprint, install_team
 from .webhooks import Unauthorized, build_prompt, event_name, verify
+from .workspace import discard_workspace, repo_root, sandbox_available, workspace_changes
 
 
 # ---- request bodies ---------------------------------------------------------
@@ -174,6 +175,7 @@ class ComputerPatch(BaseModel):
 class LocalPatch(BaseModel):
     enabled: bool | None = None
     project_dir: str | None = Field(None, max_length=1000)
+    mode: Literal["ask", "build"] | None = None
 
 
 class VoiceOffer(BaseModel):
@@ -270,6 +272,7 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
             "web_search": bool(settings.exa_api_key),
             "slack": bool(runtime.slack),
             "voice": settings.voice_stack if runtime.voice is not None else "off",
+            "build_sandbox": sandbox_available(),
         }
 
     # -- overview ---------------------------------------------------------------
@@ -353,6 +356,13 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
         merged = {**(dot.get("local") or {}), **patch}
         if merged.get("enabled") and not merged.get("project_dir"):
             raise HTTPException(400, "Set a project folder before turning this on.")
+        if merged.get("mode") == "build" and merged.get("project_dir"):
+            if await repo_root(Path(merged["project_dir"])) is None:
+                raise HTTPException(
+                    400,
+                    "Build mode works on a git branch, so the project folder needs to be a git "
+                    "repository with at least one commit. Run git init and commit, then try again.",
+                )
         dot = store.update_dot(dot_id, local=merged)
         if patch.get("enabled"):
             if not dot.get("research_allowed"):
@@ -367,6 +377,25 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
                 }
                 dot = store.update_dot(dot_id, computer=perms)
         return dot
+
+    @api.get("/local/{dot_id}/workspaces")
+    async def list_workspaces(dot_id: str) -> list[dict[str, Any]]:
+        """Build-mode branches this Dot has worked on, newest first, with what changed."""
+        store.dot(dot_id)
+        rows = store.workspaces(dot_id)
+        for row in rows[:20]:
+            row["changes"] = await workspace_changes(row)
+        return rows[:20]
+
+    @api.delete("/local/{dot_id}/workspaces/{workspace_id}")
+    async def remove_workspace(dot_id: str, workspace_id: str) -> dict[str, bool]:
+        """The owner throws a branch's working copy away. The branch itself stays in git."""
+        row = next((w for w in store.workspaces(dot_id) if w["id"] == workspace_id), None)
+        if row is None:
+            raise HTTPException(404, "That workspace is gone.")
+        await discard_workspace(row, settings.data_dir)
+        store.remove_workspace(workspace_id)
+        return {"ok": True}
 
     # -- spaces & pages -----------------------------------------------------------
     @api.post("/spaces", status_code=201)

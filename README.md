@@ -133,6 +133,18 @@ Set `PUBLIC_URL` so the ntfy **Answer** button opens your server. **Test call** 
 
 <br clear="right">
 
+### Build mode: leave, come back to a pull request
+
+Give a Dot your project folder (Team and setup, Claude Code capabilities) and tick **Build mode**. It then codes on its own git branch, in a separate copy of the project under your data folder:
+
+- **Free, no approvals:** reading, writing and editing files, installs, builds, tests and local commits.
+- **Asks you (rings your phone):** pushing the branch and opening the pull request, and writing secret-looking files.
+- **Your checkout is never touched.** Your branch, uncommitted work and `.env` stay where they are. Commits made by the Dot are left out if they include secret-looking files.
+- **Commands run in a throwaway Docker container** that sees only that branch: no capabilities, memory/CPU/process limits, a time limit. Build the image once with `docker build -t dotsfam-build sandbox/`, or set `BUILD_IMAGE`. Without Docker, commands run on the server and ask first.
+- Specialists share the branch of the conversation they were delegated from. Pull requests use the GitHub CLI (`gh`) when it is installed, otherwise you get the compare link.
+
+The project must be a git repository with at least one commit and a remote you can push to from the server.
+
 ## How it works
 
 ```

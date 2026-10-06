@@ -81,6 +81,10 @@ CREATE TABLE IF NOT EXISTS triggers(
   prompt TEXT NOT NULL, secret TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
   fire_count INTEGER NOT NULL DEFAULT 0, last_fired_at INTEGER, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS trigger_fires(trigger_id TEXT NOT NULL, fired_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS workspaces(
+  id TEXT PRIMARY KEY, dot_id TEXT NOT NULL, thread_id TEXT NOT NULL, project_dir TEXT NOT NULL,
+  path TEXT NOT NULL, work_root TEXT NOT NULL, git_dir TEXT NOT NULL, branch TEXT NOT NULL, base TEXT NOT NULL, base_commit TEXT NOT NULL,
+  pushed_at INTEGER, pr_url TEXT, created_at INTEGER NOT NULL, UNIQUE(dot_id, thread_id));
 CREATE TABLE IF NOT EXISTS push_subscriptions(
   endpoint TEXT PRIMARY KEY, keys TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS slack_threads(
@@ -982,3 +986,32 @@ class Store:
             "SELECT channel, ts FROM slack_threads WHERE thread_id=? ORDER BY rowid LIMIT 1",
             thread_id,
         )
+
+    # ---- build-mode workspaces ----------------------------------------------------------
+    def workspace(self, dot_id: str, thread_id: str) -> dict[str, Any] | None:
+        return self._one(
+            "SELECT * FROM workspaces WHERE dot_id=? AND thread_id=?", dot_id, thread_id
+        )
+
+    def workspaces(self, dot_id: str | None = None) -> list[dict[str, Any]]:
+        if dot_id:
+            return self._all(
+                "SELECT * FROM workspaces WHERE dot_id=? ORDER BY created_at DESC", dot_id
+            )
+        return self._all("SELECT * FROM workspaces ORDER BY created_at DESC")
+
+    def add_workspace(self, **fields: Any) -> dict[str, Any]:
+        row = {"id": new_id(), "pushed_at": None, "pr_url": None, "created_at": now_ms(), **fields}
+        columns = ", ".join(row)
+        self._run(
+            f"INSERT INTO workspaces({columns}) VALUES ({', '.join('?' * len(row))})",
+            *row.values(),
+        )
+        return row
+
+    def update_workspace(self, workspace_id: str, **fields: Any) -> None:
+        sets = ", ".join(f"{key}=?" for key in fields)
+        self._run(f"UPDATE workspaces SET {sets} WHERE id=?", *fields.values(), workspace_id)
+
+    def remove_workspace(self, workspace_id: str) -> None:
+        self._run("DELETE FROM workspaces WHERE id=?", workspace_id)

@@ -77,6 +77,18 @@ def system_prompt(ctx: DotContext) -> str:
             "one before the next step. If the owner has taken control, wait and tell them what you need. "
             "Never type passwords or payment details the owner did not give you for that site."
         )
+    local = dot.get("local") or {}
+    if local.get("enabled") and local.get("mode") == "build":
+        parts.append(
+            "Build mode: you code on your own git branch of the owner's project "
+            f"({local.get('project_dir')}), never on their checkout. Reading, writing and editing "
+            "files, running installs, builds and tests (run_command, in a throwaway container) and "
+            "commit_work are all free, so don't ask the owner about them. Work in small steps: "
+            "change, run the tests, commit. Untracked files like .env are not on your branch; if "
+            "you need a secret, say so. When the work is done and tests pass, call "
+            "open_pull_request once with a clear summary of what changed and how you tested it. "
+            "That is the step that asks the owner."
+        )
     if ctx.reversible:
         parts.append(REVERSIBILITY)
     if ctx.source == "voice":

@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     ntfy_server: str = "https://ntfy.sh"
     ntfy_token: str | None = None
 
+    # Build mode: a Dot works on its own git branch (a worktree next to your checkout) and runs
+    # commands in a throwaway Docker container that only sees that branch. Docker image to use:
+    # build it with `docker build -t dotsfam-build sandbox/`, or name any image with sh in it.
+    build_image: str = "dotsfam-build"
+    build_network: str = "bridge"  # "none" cuts the sandbox off the internet (no installs)
+    build_memory: str = "2g"
+    build_cpus: str = "2"
+
     @field_validator("default_timezone")
     @classmethod
     def _zone(cls, value: str) -> str:

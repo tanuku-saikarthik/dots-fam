@@ -345,9 +345,37 @@ class RunCommand(BaseModel):
     timeout_seconds: int = Field(30, ge=1, le=120)
 
 
+class BuildCommand(BaseModel):
+    command: str = Field(
+        description="Shell command, run with sh in a fresh container whose /work is your branch."
+    )
+    timeout_seconds: int = Field(120, ge=1, le=900)
+
+
+class CommitWork(BaseModel):
+    message: str = Field(min_length=3, max_length=2000, description="Commit message.")
+
+
+class NoArgs(BaseModel):
+    pass
+
+
+class OpenPullRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=200)
+    body: str = Field(
+        "", max_length=20_000, description="What changed, why, and how it was tested."
+    )
+
+
+def _git_internal(raw: str) -> bool:
+    return ".git" in [p for p in re.split(r"[\\/]+", raw) if p]
+
+
 def local_tools(ctx: DotContext) -> list[BaseTool]:
     settings = ctx.dot.get("local") or {}
-    if not settings.get("enabled") or ctx.worker:
+    build = settings.get("mode") == "build"
+    # Specialists get these tools only in build mode, where they work on their own branch.
+    if not settings.get("enabled") or (ctx.worker and not build):
         return []
     raw_dir = settings.get("project_dir")
     if not raw_dir:
@@ -355,21 +383,49 @@ def local_tools(ctx: DotContext) -> list[BaseTool]:
     project_dir = Path(raw_dir).expanduser()
     if not project_dir.is_dir():
         return []
-    root = project_dir.resolve()
 
-    def relative(path: str) -> str:
-        return str(safe_path(project_dir, path).relative_to(root))
+    from ..workspace import (
+        WorkspaceError,
+        Workspaces,
+        run_in_sandbox,
+        sandbox_available,
+    )
+
+    workspaces = Workspaces(ctx.store, ctx.settings) if build else None
+    sandboxed = build and sandbox_available()
+
+    async def folder() -> Path:
+        """Where tools act: the project folder, or in build mode this conversation's branch."""
+        if workspaces is None:
+            return project_dir
+        ws = await workspaces.ensure(ctx.dot, ctx.thread_id)
+        return Path(ws["path"])
+
+    def current_folder() -> Path | None:
+        if workspaces is None:
+            return project_dir
+        ws = workspaces.find(ctx.dot["id"], ctx.thread_id)
+        return Path(ws["path"]) if ws else None
 
     def classify_read(args: dict[str, Any]) -> str | None:
-        try:
-            rel = relative(str(args.get("path", "")))
-        except PathEscape:
-            return None  # read_file itself refuses paths outside the folder
-        return f"reads a file that may hold secrets: {rel}" if is_secret(rel) else None
+        raw = str(args.get("path", ""))
+        if workspaces is None:
+            try:
+                raw = str(safe_path(project_dir, raw).relative_to(project_dir.resolve()))
+            except PathEscape:
+                return None  # read_file itself refuses paths outside the folder
+        return f"reads a file that may hold secrets: {raw}" if is_secret(raw) else None
+
+    def classify_write(args: dict[str, Any]) -> str | None:
+        """Build mode: writes on the Dot's own branch are free, except secret-looking files."""
+        raw = str(args.get("path", ""))
+        if is_secret(raw):
+            return f"writes a file that may hold secrets, on its branch: {raw}"
+        return None
 
     async def read_file(path: str, offset: int = 0, limit: int = 2000) -> str:
         ctx.check()
-        target = safe_path(project_dir, path)
+        target = safe_path(await folder(), path)
         if not target.is_file():
             raise FileNotFoundError(f"No file at {path}")
         if target.stat().st_size > MAX_READ_BYTES and offset == 0 and limit >= 2000:
@@ -380,14 +436,18 @@ def local_tools(ctx: DotContext) -> list[BaseTool]:
 
     async def write_file(path: str, content: str) -> str:
         ctx.check()
-        target = safe_path(project_dir, path)
+        if _git_internal(path):
+            raise PermissionError("Git's own files (.git) can't be written.")
+        target = safe_path(await folder(), path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         return f"Wrote {len(content)} chars to {path}"
 
     async def edit_file(path: str, old_string: str, new_string: str) -> str:
         ctx.check()
-        target = safe_path(project_dir, path)
+        if _git_internal(path):
+            raise PermissionError("Git's own files (.git) can't be edited.")
+        target = safe_path(await folder(), path)
         if not target.is_file():
             raise FileNotFoundError(f"No file at {path}")
         text = target.read_text(encoding="utf-8", errors="replace")
@@ -402,10 +462,12 @@ def local_tools(ctx: DotContext) -> list[BaseTool]:
     async def glob_files(pattern: str) -> str:
         ctx.check()
         check_pattern(pattern)
+        base = await folder()
+        root = base.resolve()
         matches = sorted(
-            str(p.relative_to(project_dir))
-            for p in project_dir.glob(pattern)
-            if p.is_file() and _inside(root, p)
+            str(p.relative_to(base))
+            for p in base.glob(pattern)
+            if p.is_file() and _inside(root, p) and ".git" not in p.relative_to(base).parts
         )
         if not matches:
             return "No files matched."
@@ -418,14 +480,18 @@ def local_tools(ctx: DotContext) -> list[BaseTool]:
             regex = re.compile(pattern)
         except re.error as error:
             raise ValueError(f"Bad pattern: {error}") from error
+        base = await folder()
+        root = base.resolve()
         hits: list[str] = []
         skipped: list[str] = []
-        for file in project_dir.glob(glob):
+        for file in base.glob(glob):
             if len(hits) >= MAX_MATCHES:
                 break
             if not file.is_file() or not _inside(root, file):
                 continue
-            rel = str(file.relative_to(project_dir))
+            rel = str(file.relative_to(base))
+            if any(part in SKIP_DIRS for part in Path(rel).parts):
+                continue
             if is_secret(rel):
                 skipped.append(rel)
                 continue
@@ -450,10 +516,18 @@ def local_tools(ctx: DotContext) -> list[BaseTool]:
 
     async def run_command(command: str, timeout_seconds: int = 30) -> str:
         ctx.check()
+        base = await folder()
+        if sandboxed:
+            try:
+                return await run_in_sandbox(
+                    ctx.settings, ctx.dot["id"], base, command, timeout_seconds
+                )
+            except WorkspaceError as error:
+                raise RuntimeError(str(error)) from None
         posix = sys.platform != "win32"
         process = await asyncio.create_subprocess_shell(
             command,
-            cwd=project_dir,
+            cwd=base,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             start_new_session=posix,  # its own process group, so a timeout kills children too
@@ -474,21 +548,29 @@ def local_tools(ctx: DotContext) -> list[BaseTool]:
             output = output[:MAX_OUTPUT_CHARS] + "\n...(truncated)"
         return output or f"(exit {process.returncode}, no output)"
 
-    return [
+    where = "your branch of the project" if build else f"the project folder ({project_dir})"
+    tools = [
         StructuredTool.from_function(
             coroutine=read_file,
             name="read_file",
             args_schema=ReadFile,
-            description=f"Read a text file from the project folder ({project_dir}). Free, except files "
-            "that may hold secrets (.env, keys, credentials), which ask the owner first.",
+            description=f"Read a text file from {where}. Free, except files that may hold secrets "
+            "(.env, keys, credentials), which ask the owner first.",
             metadata={"classify": classify_read},
         ),
         StructuredTool.from_function(
             coroutine=write_file,
             name="write_file",
             args_schema=WriteFile,
-            description="Create or overwrite a file in the project folder. Always needs owner approval.",
-            metadata={
+            description=(
+                "Create or overwrite a file on your branch. Free (the owner reviews the branch "
+                "before it's pushed), except secret-looking files."
+                if build
+                else "Create or overwrite a file in the project folder. Always needs owner approval."
+            ),
+            metadata={"classify": classify_write}
+            if build
+            else {
                 "external": True,
                 "reason": "writes a file in the project folder on your computer",
             },
@@ -497,8 +579,14 @@ def local_tools(ctx: DotContext) -> list[BaseTool]:
             coroutine=edit_file,
             name="edit_file",
             args_schema=EditFile,
-            description="Replace one exact, unique snippet of text in a file. Always needs owner approval.",
-            metadata={
+            description=(
+                "Replace one exact, unique snippet of text in a file on your branch. Free."
+                if build
+                else "Replace one exact, unique snippet of text in a file. Always needs owner approval."
+            ),
+            metadata={"classify": classify_write}
+            if build
+            else {
                 "external": True,
                 "reason": "edits a file in the project folder on your computer",
             },
@@ -507,25 +595,117 @@ def local_tools(ctx: DotContext) -> list[BaseTool]:
             coroutine=glob_files,
             name="glob_files",
             args_schema=GlobFiles,
-            description="List files in the project folder matching a glob pattern. Free.",
+            description=f"List files in {where} matching a glob pattern. Free.",
         ),
         StructuredTool.from_function(
             coroutine=grep_files,
             name="grep_files",
             args_schema=GrepFiles,
-            description="Search file contents in the project with a regular expression. Free; skips "
+            description=f"Search file contents in {where} with a regular expression. Free; skips "
             "files that may hold secrets. Prefer this over grep in run_command.",
         ),
+    ]
+    if sandboxed:
+        tools.append(
+            StructuredTool.from_function(
+                coroutine=run_command,
+                name="run_command",
+                args_schema=BuildCommand,
+                description=(
+                    "Run a shell command (install, build, test, lint) in a fresh, throwaway container "
+                    "that only sees your branch, mounted at /work. Free. Files you create persist on "
+                    "the branch; nothing else does, so install dependencies into the project (e.g. a "
+                    ".venv or node_modules). Don't use git here: use commit_work."
+                ),
+            )
+        )
+    else:
+        tools.append(
+            StructuredTool.from_function(
+                coroutine=run_command,
+                name="run_command",
+                args_schema=RunCommand,
+                description=(
+                    f"Run a shell command inside {where} (run tests, git status, install a "
+                    "dependency). Simple read-only commands that stay inside the folder run "
+                    "immediately (ls, cat, git status/log/diff, ...); anything else asks the owner "
+                    "first. To read or search files, prefer read_file / grep_files."
+                ),
+                metadata={"classify": lambda args: classify_command(args, current_folder())},
+            )
+        )
+    if workspaces is not None:
+        tools += _branch_tools(ctx, workspaces, WorkspaceError)
+    return tools
+
+
+def _branch_tools(ctx: DotContext, workspaces: Any, error_type: type[Exception]) -> list[BaseTool]:
+    async def current() -> dict[str, Any]:
+        return await workspaces.ensure(ctx.dot, ctx.thread_id)
+
+    def branch_name() -> str:
+        ws = workspaces.find(ctx.dot["id"], ctx.thread_id)
+        return ws["branch"] if ws else "its work branch"
+
+    async def commit_work(message: str) -> str:
+        ctx.check()
+        try:
+            return await workspaces.commit(await current(), message, ctx.dot["name"])
+        except error_type as error:
+            raise RuntimeError(str(error)) from None
+
+    async def work_summary() -> str:
+        ctx.check()
+        return await workspaces.summary(await current())
+
+    async def push_branch() -> str:
+        ctx.check()
+        try:
+            return await workspaces.push(await current())
+        except error_type as error:
+            raise RuntimeError(str(error)) from None
+
+    async def open_pull_request(title: str, body: str = "") -> str:
+        ctx.check()
+        try:
+            return await workspaces.open_pr(await current(), title, body)
+        except error_type as error:
+            raise RuntimeError(str(error)) from None
+
+    return [
         StructuredTool.from_function(
-            coroutine=run_command,
-            name="run_command",
-            args_schema=RunCommand,
-            description=(
-                "Run a shell command inside the project folder (run tests, git status, install a "
-                "dependency). Simple read-only commands that stay inside the folder run immediately "
-                "(ls, cat, git status/log/diff, ...); anything else asks the owner first. To read or "
-                "search files, prefer read_file / grep_files."
-            ),
-            metadata={"classify": lambda args: classify_command(args, project_dir)},
+            coroutine=commit_work,
+            name="commit_work",
+            args_schema=CommitWork,
+            description="Commit everything on your branch (local only, nothing leaves the machine). "
+            "Free. Commit at each working step.",
+        ),
+        StructuredTool.from_function(
+            coroutine=work_summary,
+            name="work_summary",
+            args_schema=NoArgs,
+            description="Your branch name, commits so far, and what changed. Free.",
+        ),
+        StructuredTool.from_function(
+            coroutine=push_branch,
+            name="push_branch",
+            args_schema=NoArgs,
+            description="Push your branch to the project's git remote. Asks the owner. Only when the "
+            "work is done, committed and tested.",
+            metadata={
+                "classify": lambda _args: f"pushes the branch {branch_name()} to your git host"
+            },
+        ),
+        StructuredTool.from_function(
+            coroutine=open_pull_request,
+            name="open_pull_request",
+            args_schema=OpenPullRequest,
+            description="Push your branch (if needed) and open a pull request for the owner to "
+            "review. Asks the owner. Use this to hand in finished work.",
+            metadata={
+                "classify": lambda args: (
+                    f"pushes {branch_name()} and opens a pull request: {str(args.get('title'))[:100]}"
+                )
+            },
         ),
     ]

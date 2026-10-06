@@ -12,7 +12,7 @@ export interface Dot {
   space_ids: string[];
   color: string;
   computer: Record<string, boolean>;
-  local: { enabled?: boolean; project_dir?: string | null };
+  local: { enabled?: boolean; project_dir?: string | null; mode?: 'ask' | 'build' };
 }
 export interface Space {
   id: string;
@@ -35,6 +35,7 @@ export interface Setup {
   worker_model: string | null;
   timezone: string;
   computer_driver: string;
+  build_sandbox?: boolean;
   web_search: boolean;
   slack: boolean;
   voice: string;

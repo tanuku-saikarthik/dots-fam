@@ -40,7 +40,9 @@ class SubTask(BaseModel):
         max_length=6000,
         description="Self-contained brief for this slice of your current task.",
     )
-    expected_output: str = Field("", max_length=1000, description="Exact shape of this slice's output.")
+    expected_output: str = Field(
+        "", max_length=1000, description="Exact shape of this slice's output."
+    )
 
 
 class SpawnSubagents(BaseModel):
@@ -61,7 +63,9 @@ class CreateDot(BaseModel):
         description="Full role card: goal, sources, working style, approval boundary, cadence - "
         "written the same way the owner would write one.",
     )
-    model: str | None = Field(None, description="provider:model, or leave unset to use the team default.")
+    model: str | None = Field(
+        None, description="provider:model, or leave unset to use the team default."
+    )
 
 
 def roster_text(ctx: DotContext) -> str:
@@ -71,6 +75,12 @@ def roster_text(ctx: DotContext) -> str:
             continue
         role = " ".join(dot["instructions"].split())[:260]
         title = f" ({dot['title']})" if dot["title"] else ""
+        local = dot.get("local") or {}
+        if local.get("enabled") and local.get("mode") == "build" and local.get("project_dir"):
+            role += (
+                f" [Codes in {local['project_dir']}: works on its own branch, runs tests, and opens "
+                "a pull request.]"
+            )
         lines.append(f"- {dot['name']}{title}: {role}")
     return "\n".join(lines) or "- (no specialists yet)"
 
@@ -119,7 +129,9 @@ def team_tools(ctx: DotContext) -> list[BaseTool]:
     def classify_new_dot(args: dict) -> str:
         return f'creates a new Dot named "{args.get("name", "")}" on your team'
 
-    async def create_dot(name: str, title: str = "", instructions: str = "", model: str | None = None) -> dict:
+    async def create_dot(
+        name: str, title: str = "", instructions: str = "", model: str | None = None
+    ) -> dict:
         ctx.check()
         name = name.strip()
         if not name:
@@ -129,7 +141,9 @@ def team_tools(ctx: DotContext) -> list[BaseTool]:
         if model:
             parse_ref(model)  # raises a clear error for a malformed provider:model string
         used = {d["color"] for d in ctx.store.dots()}
-        color = next((c for c in COLORS if c not in used), COLORS[len(ctx.store.dots()) % len(COLORS)])
+        color = next(
+            (c for c in COLORS if c not in used), COLORS[len(ctx.store.dots()) % len(COLORS)]
+        )
         dot = ctx.store.create_dot(
             name=name,
             title=title,
