@@ -74,9 +74,7 @@ async def test_a_waiting_approval_rings_the_phone_via_ntfy(runtime, script, noti
     assert request.headers["Click"] == link
     assert request.headers["Actions"] == f"view, Answer, {link}, clear=true"
     assert "Authorization" not in request.headers
-    assert request.content.decode() == (
-        "Cole needs your OK: it sends an email, to ana@acme.example. Approve or decline?"
-    )
+    assert request.content.decode() == "Needs your OK. Answer to hear what's waiting."
     events = runtime.store.events([thread["id"]])
     assert any(e["kind"] == "call" and e["text"].startswith("Rang you:") for e in events)
 
@@ -116,6 +114,7 @@ async def test_ntfy_token_is_sent_when_set(runtime, notifier, ntfy):
     sent = await notifier.ring(vance, thread["id"], "Test")
     assert sent == {"push": 0, "ntfy": 1}
     assert ntfy.requests[0].headers["Authorization"] == "Bearer tk_secret"
+    assert ntfy.requests[0].content == b"Test"  # a protected server gets the details
 
 
 async def test_web_push_reaches_devices_and_drops_dead_ones(runtime, notifier, monkeypatch):

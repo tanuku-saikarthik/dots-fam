@@ -19,6 +19,7 @@ import { TeamLine } from './components/TeamLine';
 import { ActivityView } from './views/ActivityView';
 import { ChatView } from './views/ChatView';
 import { ComputerView } from './views/ComputerView';
+import { IncomingCall } from './views/IncomingCall';
 import { PagesView } from './views/PagesView';
 import { RoutinesView } from './views/RoutinesView';
 import { TeamView } from './views/TeamView';
@@ -171,6 +172,15 @@ export function App() {
       </main>
     );
 
+  if (view === 'call' && route[2])
+    return (
+      <IncomingCall
+        threadId={route[2]}
+        onAnswer={(dotId, thread) => navigate(`/chat/${dotId}/${thread}/call`)}
+        onDecline={() => navigate('/activity')}
+      />
+    );
+
   const threadId = view === 'chat' ? route[2] : undefined;
   const dotThreads = state.threads.filter((t) => t.dot_id === chatDot?.id);
   const go = (path: string) => navigate(path);
@@ -312,6 +322,7 @@ export function App() {
                 onRefresh={refresh}
                 onRoutine={(id) => go(`/routines/${id}`)}
                 onComputer={() => go(`/computer/${chatDot.id}`)}
+                startCall={route[3] === 'call'}
               />
             ) : (
               <div className="empty">

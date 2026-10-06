@@ -18,6 +18,7 @@ Built from scratch on **LangGraph + FastAPI + React**. It works through chat, Sl
 | **A computer per Dot** | A browser that remembers its logins, a workspace for files, and an optional shell inside the Dot's own Docker container. Watch the live screen, take control, hand it back. |
 | **Pages** | Shared Markdown documents with revisions and conflict checks. Dots write briefs and staging tables here; you edit them in a rich editor. |
 | **Slack** | Mention the app or DM it. Every Slack thread is one conversation, and `Mara: ...` talks to Mara directly. Routine results and approvals can go to a channel. |
+| **Your team calls you** | When a Dot needs your OK, your phone rings: "Vance is calling". Answer, hear what's waiting, say yes or no. Free web push or the ntfy app, so no phone number, SIM or Twilio bill. |
 | **Voice calls** | Call any Dot from the browser. Open models by default: Whisper to hear you, Kokoro to talk back, Smart Turn to know when you're done talking. |
 | **Kill switches** | Pause the whole team, stop one run, stop one handoff, or switch a Dot between "ask before acting" and autonomous. |
 | **Blueprints** | One click installs a working setup: Autonomous Launch Coordinator, Continuous Lead Intelligence Desk, 24/7 Security and Dependency Auditor, or Executive Meeting & Follow-Up Desk. Each comes with its routine and/or webhook. |
@@ -116,6 +117,21 @@ Press **Call** in any conversation. Each thing you say shows up in the chat, and
 | Hearing | Whisper Large V3 Turbo via faster-whisper | MIT |
 | Speaking | Kokoro-82M via kokoro-onnx | Apache-2.0 |
 | Turn-taking | Silero VAD + Smart Turn v3 | MIT / BSD-2 |
+
+### Your team calls you
+
+<img src="docs/screenshots/incoming-call.png" width="260" align="right" alt="Vance is calling, with the two emails waiting for approval">
+
+When a run stops for your approval, Dots Fam rings your phone. Tap **Answer** and the voice call starts in the conversation, where the Dot reads out what's waiting and you approve by saying yes. Several approvals in one conversation ring once, at most once a minute.
+
+Both ways of ringing are free and need no phone number:
+
+- **Web push.** Open Team and setup, press **Turn on calls**, and allow notifications. Works in Chrome, Edge, Firefox and Safari, even with the tab closed. Needs `https://` (or `localhost`). On iPhone, add Dots Fam to your Home Screen first (iOS 16.4 or later) and turn calls on from there.
+- **ntfy.** Install the [ntfy](https://ntfy.sh) app, subscribe to a long, hard-to-guess topic, and set `NTFY_TOPIC`. Alerts come in at urgent priority with an **Answer** button. Anyone who knows a topic name on ntfy.sh can read it, so there the alert only says which Dot is calling; you hear the details when you answer. With your own ntfy server (`NTFY_SERVER`) or an access token (`NTFY_TOKEN`), the alert includes them. Web push is end-to-end encrypted, so it always does.
+
+Set `PUBLIC_URL` so the ntfy **Answer** button opens your server. **Test call** in Team and setup rings every device you set up.
+
+<br clear="right">
 
 ## How it works
 

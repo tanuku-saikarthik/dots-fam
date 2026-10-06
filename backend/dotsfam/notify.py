@@ -99,7 +99,10 @@ class Notifier:
         results = {"push": 0, "ntfy": 0}
         results["push"] = await self._web_push(payload)
         if self.settings.ntfy_topic:
-            results["ntfy"] = await self._ntfy(title, reason, link)
+            # Anyone who guesses a topic on public ntfy.sh can read it, so details stay off it.
+            public = not self.settings.ntfy_token and "://ntfy.sh" in self.settings.ntfy_server
+            body = "Needs your OK. Answer to hear what's waiting." if public else reason
+            results["ntfy"] = await self._ntfy(title, body, link)
         self.sent.append({"at": int(time.time() * 1000), "title": title, "body": reason, **results})
         self.sent = self.sent[-20:]
         self.store.add_event(thread_id, "call", f"Rang you: {reason[:160]}")

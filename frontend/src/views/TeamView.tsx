@@ -3,6 +3,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { api, type AppState, type Dot } from '../api';
 import { browserZone } from '../cron';
 import { DotMark } from '../components/DotMark';
+import { CallsPanel } from '../components/CallsPanel';
 
 const COLORS = ['purple', 'mint', 'orange', 'blue', 'ochre', 'rose'];
 
@@ -373,6 +374,7 @@ export function TeamView({ state, onChanged }: { state: AppState; onChanged: () 
               }}
             />
           )}
+          <CallsPanel />
           <Blueprints state={state} onChanged={onChanged} />
           <section className="stack">
             <div>

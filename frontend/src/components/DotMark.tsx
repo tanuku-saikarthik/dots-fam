@@ -13,7 +13,7 @@ const DOT_HEX: Record<string, string> = {
   rose: 'e0457b',
 };
 
-const PIXELS: Record<'s' | 'm' | 'l', number> = { s: 20, m: 28, l: 46 };
+const PIXELS: Record<'s' | 'm' | 'l' | 'xl', number> = { s: 20, m: 28, l: 46, xl: 132 };
 
 /**
  * Hand-picked "office ensemble" archetypes — a believable, distinct cast of
@@ -143,7 +143,7 @@ export function DotMark({
   active = false,
 }: {
   dot?: Pick<Dot, 'name' | 'color'>;
-  size?: 's' | 'm' | 'l';
+  size?: 's' | 'm' | 'l' | 'xl';
   active?: boolean;
 }) {
   const name = dot?.name?.trim() || 'dot';

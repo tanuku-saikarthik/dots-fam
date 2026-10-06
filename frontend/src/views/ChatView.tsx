@@ -135,6 +135,7 @@ export function ChatView({
   onRefresh,
   onRoutine,
   onComputer,
+  startCall = false,
 }: {
   state: AppState;
   dot: Dot;
@@ -143,13 +144,14 @@ export function ChatView({
   onRefresh: () => void;
   onRoutine: (threadId: string) => void;
   onComputer: () => void;
+  startCall?: boolean;
 }) {
   const [detail, setDetail] = useState<ThreadDetail>();
   const [live, setLive] = useState<{ text: string; steps: RunEvent[] } | null>(null);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [calling, setCalling] = useState(false);
+  const [calling, setCalling] = useState(startCall && state.setup.voice !== 'off');
   const scroller = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
