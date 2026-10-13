@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     ntfy_server: str = "https://ntfy.sh"
     ntfy_token: str | None = None
 
+    # Phone calls over Twilio (optional): your Dots ring a real phone and answer one. Twilio
+    # Media Streams carry the call into the same Pipecat pipeline as browser calls. Needs
+    # PUBLIC_URL on https. If the call can't be placed or isn't answered, web push and ntfy ring.
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_number: str | None = None  # your Twilio number, E.164 (+14155550100)
+    owner_phone: str | None = None  # the phone your Dots call, and the only caller they answer
+    twilio_ring_seconds: int = Field(default=25, ge=5, le=600)
+
     # Build mode: a Dot works on its own git branch (a worktree next to your checkout) and runs
     # commands in a throwaway Docker container that only sees that branch. Docker image to use:
     # build it with `docker build -t dotsfam-build sandbox/`, or name any image with sh in it.
@@ -106,6 +115,16 @@ class Settings(BaseSettings):
     @property
     def slack_user_ids(self) -> list[str]:
         return [item.strip() for item in self.slack_allowed_users.split(",") if item.strip()]
+
+    @property
+    def phone_enabled(self) -> bool:
+        return bool(
+            self.twilio_account_sid
+            and self.twilio_auth_token
+            and self.twilio_number
+            and self.owner_phone
+            and self.public_url
+        )
 
 
 @lru_cache

@@ -7,8 +7,9 @@ import hmac
 import json
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import parse_qsl
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
@@ -273,6 +274,7 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
             "web_search": bool(settings.exa_api_key),
             "slack": bool(runtime.slack),
             "voice": settings.voice_stack if runtime.voice is not None else "off",
+            "phone": runtime.phone is not None and runtime.phone.problem() is None,
             "build_sandbox": sandbox_available(),
         }
 
@@ -823,7 +825,7 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
     async def voice_hangup(body: VoiceHangup) -> dict[str, bool]:
         return {"ok": await voice().hangup(body.pc_id)}
 
-    # -- calls: ring the owner's phone (web push / ntfy) ---------------------------------
+    # -- calls: ring the owner's phone (Twilio, then web push / ntfy) ---------------------
     def notifier() -> Any:
         if runtime.notifier is None:
             raise HTTPException(404, "Calls are off on this server.")
@@ -849,16 +851,16 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
     @api.post("/calls/test")
     async def test_call() -> dict[str, Any]:
         n = notifier()
-        if not store.push_subscriptions() and not runtime.settings.ntfy_topic:
+        if not n.can_ring():
             raise HTTPException(
-                409, "Nothing to ring yet. Turn on calls on your phone, or set NTFY_TOPIC."
+                409, "Nothing to ring yet. Turn on calls on your phone, set NTFY_TOPIC or Twilio."
             )
         chief = next((d for d in store.dots() if d["can_delegate"]), None) or store.dots()[0]
         thread = next((t for t in store.threads(chief["id"])), None) or store.create_thread(
             chief["id"], "Calls"
         )
         sent = await n.ring(chief, thread["id"], "This is a test call. Answer to talk to me.")
-        if not sent["push"] and not sent["ntfy"]:
+        if not any(sent.values()):
             raise HTTPException(502, "The call didn't go through. Check the server log.")
         return sent
 
@@ -869,6 +871,40 @@ def create_app(runtime: Runtime, static_dir: Path | None = None) -> FastAPI:
         return {"thread": thread, "dot": store.dot(thread["dot_id"]), "waiting": lines}
 
     app.include_router(api)
+
+    # -- Twilio phone calls (public: every request is signed with your Twilio auth token) ---
+    def phone() -> Any:
+        if runtime.phone is None:
+            raise HTTPException(404, "Phone calls are off on this server.")
+        return runtime.phone
+
+    async def twilio_form(request: Request) -> dict[str, str]:
+        body = await request.body()
+        if len(body) > 64_000:
+            raise HTTPException(413, "Payload is too large.")
+        params = dict(parse_qsl(body.decode(), keep_blank_values=True))
+        path = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+        if not phone().verify(path, params, request.headers.get("x-twilio-signature", "")):
+            raise HTTPException(403, "Not signed by Twilio.")
+        return params
+
+    @app.post("/twilio/voice")
+    async def twilio_voice(request: Request) -> Response:
+        params = await twilio_form(request)
+        twiml = phone().answer(params, dict(request.query_params))
+        return Response(twiml, media_type="application/xml")
+
+    @app.post("/twilio/status", status_code=204)
+    async def twilio_status(request: Request) -> Response:
+        await phone().on_status(await twilio_form(request))
+        return Response(status_code=204)
+
+    @app.websocket("/twilio/stream")
+    async def twilio_stream(websocket: WebSocket) -> None:
+        if runtime.phone is None:
+            await websocket.close(code=1008)
+            return
+        await runtime.phone.stream(websocket)
 
     # -- public webhook ------------------------------------------------------------
     @app.post("/hooks/{trigger_id}", status_code=202)

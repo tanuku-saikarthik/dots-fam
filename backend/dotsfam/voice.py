@@ -90,6 +90,7 @@ class CallState:
     spoken_approvals: set[str] = field(default_factory=set)
     muted_runs: set[str] = field(default_factory=set)
     sources: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, str] | None = None  # phone calls: channel, caller, call_id, conversation_id
 
     def pending(self) -> list[dict[str, Any]]:
         store, root = self.runtime.store, self.runtime.root_thread
@@ -139,7 +140,7 @@ class CallState:
             )
             return " ".join([said, *more])
         try:
-            await self.runtime.runs.send(self.thread_id, text, source="voice")
+            await self.runtime.runs.send(self.thread_id, text, source="voice", call=self.metadata)
             return None
         except Busy:
             self.runtime.store.create_task(self.thread_id, text, origin="voice")
@@ -473,6 +474,23 @@ class VoiceManager:
         return stt, tts
 
     async def _run_call(self, connection: Any, call: CallState) -> None:
+        from pipecat.transports.base_transport import TransportParams
+        from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
+
+        try:
+            transport = SmallWebRTCTransport(
+                webrtc_connection=connection,
+                params=TransportParams(audio_in_enabled=True, audio_out_enabled=True),
+            )
+            await self.run_pipeline(transport, call)
+        except asyncio.CancelledError:
+            await connection.disconnect()
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("Voice call failed")
+
+    async def run_pipeline(self, transport: Any, call: CallState, **params: Any) -> None:
+        """Speech in, the Dot, speech out, over any Pipecat transport (WebRTC or a phone line)."""
         from pipecat.audio.vad.silero import SileroVADAnalyzer
         from pipecat.pipeline.pipeline import Pipeline
         from pipecat.pipeline.worker import PipelineParams, PipelineWorker
@@ -481,17 +499,11 @@ class VoiceManager:
             LLMContextAggregatorPair,
             LLMUserAggregatorParams,
         )
-        from pipecat.transports.base_transport import TransportParams
-        from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
         from pipecat.workers.runner import WorkerRunner
 
         store = self.runtime.store
         store.add_event(call.thread_id, "voice", f"Call with {call.dot['name']} started")
         try:
-            transport = SmallWebRTCTransport(
-                webrtc_connection=connection,
-                params=TransportParams(audio_in_enabled=True, audio_out_enabled=True),
-            )
             stt, tts = await asyncio.to_thread(self.services)  # model loading blocks
             brain = _brain_class()(call)
             user, assistant = LLMContextAggregatorPair(
@@ -500,7 +512,9 @@ class VoiceManager:
             pipeline = Pipeline(
                 [transport.input(), stt, user, brain, tts, transport.output(), assistant]
             )
-            worker = PipelineWorker(pipeline, params=PipelineParams(), idle_timeout_secs=900)
+            worker = PipelineWorker(
+                pipeline, params=PipelineParams(**params), idle_timeout_secs=900
+            )
             runner = WorkerRunner(handle_sigint=False)
             await runner.add_workers(worker)
 
@@ -520,9 +534,6 @@ class VoiceManager:
                 await runner.cancel()
 
             await runner.run()
-        except asyncio.CancelledError:
-            await connection.disconnect()
-            raise
         except Exception:  # noqa: BLE001
             log.exception("Voice call failed")
         finally:

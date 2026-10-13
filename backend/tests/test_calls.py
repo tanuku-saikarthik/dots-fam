@@ -112,7 +112,7 @@ async def test_ntfy_token_is_sent_when_set(runtime, notifier, ntfy):
     vance = runtime.store.dot_by_name("Vance")
     thread = runtime.store.create_thread(vance["id"], "Calls")
     sent = await notifier.ring(vance, thread["id"], "Test")
-    assert sent == {"push": 0, "ntfy": 1}
+    assert sent == {"phone": 0, "push": 0, "ntfy": 1}
     assert ntfy.requests[0].headers["Authorization"] == "Bearer tk_secret"
     assert ntfy.requests[0].content == b"Test"  # a protected server gets the details
 
@@ -136,7 +136,7 @@ async def test_web_push_reaches_devices_and_drops_dead_ones(runtime, notifier, m
     vance = runtime.store.dot_by_name("Vance")
     thread = runtime.store.create_thread(vance["id"], "Calls")
     result = await notifier.ring(vance, thread["id"], "Two launches need you.")
-    assert result == {"push": 1, "ntfy": 1}
+    assert result == {"phone": 0, "push": 1, "ntfy": 1}
     [(endpoint, data, kwargs)] = sent
     assert endpoint == DEVICE["endpoint"]
     assert '"title": "Vance is calling"' in data and f"/#/call/{vance['id']}/{thread['id']}" in data
@@ -166,7 +166,7 @@ async def test_calls_api(runtime, script, client, notifier, ntfy):
     assert removed.json()["push_devices"] == 0
 
     test = await client.post("/api/calls/test")
-    assert test.json() == {"push": 0, "ntfy": 1}
+    assert test.json() == {"phone": 0, "push": 0, "ntfy": 1}
     assert ntfy.requests[-1].headers["Title"] == "Vance is calling"
 
     runtime.settings.ntfy_topic = None

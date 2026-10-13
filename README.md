@@ -18,7 +18,7 @@ Built from scratch on **LangGraph + FastAPI + React**. It works through chat, Sl
 | **A computer per Dot** | A browser that remembers its logins, a workspace for files, and an optional shell inside the Dot's own Docker container. Watch the live screen, take control, hand it back. |
 | **Pages** | Shared Markdown documents with revisions and conflict checks. Dots write briefs and staging tables here; you edit them in a rich editor. |
 | **Slack** | Mention the app or DM it. Every Slack thread is one conversation, and `Mara: ...` talks to Mara directly. Routine results and approvals can go to a channel. |
-| **Your team calls you** | When a Dot needs your OK, your phone rings: "Vance is calling". Answer, hear what's waiting, say yes or no. Free web push or the ntfy app, so no phone number, SIM or Twilio bill. |
+| **Your team calls you** | When a Dot needs your OK, your phone rings: "Vance is calling". Answer, hear what's waiting, say yes or no. Free web push or the ntfy app, or a real phone call over Twilio with those as the fallback. |
 | **Voice calls** | Call any Dot from the browser. Open models by default: Whisper to hear you, Kokoro to talk back, Smart Turn to know when you're done talking. |
 | **Kill switches** | Pause the whole team, stop one run, stop one handoff, or switch a Dot between "ask before acting" and autonomous. |
 | **Blueprints** | One click installs a working setup: Autonomous Launch Coordinator, Continuous Lead Intelligence Desk, 24/7 Security and Dependency Auditor, or Executive Meeting & Follow-Up Desk. Each comes with its routine and/or webhook. |
@@ -130,6 +130,24 @@ Both ways of ringing are free and need no phone number:
 - **ntfy.** Install the [ntfy](https://ntfy.sh) app, subscribe to a long, hard-to-guess topic, and set `NTFY_TOPIC`. Alerts come in at urgent priority with an **Answer** button. Anyone who knows a topic name on ntfy.sh can read it, so there the alert only says which Dot is calling; you hear the details when you answer. With your own ntfy server (`NTFY_SERVER`) or an access token (`NTFY_TOKEN`), the alert includes them. Web push is end-to-end encrypted, so it always does.
 
 Set `PUBLIC_URL` so the ntfy **Answer** button opens your server. **Test call** in Team and setup rings every device you set up.
+
+### Real phone calls (Twilio)
+
+Give your team a phone number. With Twilio set up, a Dot that needs your OK places a real call to your phone, and you can call the number to talk to the Chief of Staff. [Twilio Media Streams](https://www.twilio.com/docs/voice/media-streams) carry the audio into the same Pipecat pipeline as browser calls, so the Dot, its tools and spoken approvals work the same.
+
+```bash
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_NUMBER=+14155550100      # your Twilio number
+OWNER_PHONE=+919800000001       # the phone your Dots call, and the only caller they answer
+PUBLIC_URL=https://dots.example.com
+```
+
+In the Twilio console, set the number's **A call comes in** webhook to `POST https://<PUBLIC_URL>/twilio/voice`.
+
+- **Call metadata.** Every turn on a phone call reaches the Dot with the caller ID, Twilio's call ID and the conversation ID.
+- **Fallback.** If Twilio can't place the call, or it's busy, unanswered or fails, web push and ntfy ring instead.
+- **Security.** Twilio's webhooks are checked against your auth token, and each media stream needs a one-time ticket from a signed webhook. Calls from any number other than `OWNER_PHONE` are rejected. Caller ID can be spoofed, so approvals on a call are still read out and confirmed one by one.
 
 <br clear="right">
 

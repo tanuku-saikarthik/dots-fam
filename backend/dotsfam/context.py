@@ -40,6 +40,8 @@ class DotContext:
     extra: dict[str, Any] = field(default_factory=dict)
     # owner | slack | voice | routine | trigger | team | delegation | approval
     source: str = "owner"
+    # Phone call metadata: channel, direction, caller, call_id, conversation_id.
+    call: dict[str, str] | None = None
     counters: dict[str, int] = field(default_factory=dict)  # per-run budgets (e.g. web searches)
 
     def check(self) -> None:

@@ -51,6 +51,7 @@ class ActiveRun:
     events: list[dict[str, Any]] = field(default_factory=list)
     cancelled: bool = False
     task: asyncio.Task | None = None
+    call: dict[str, str] | None = None  # caller ID and IDs of the phone call this run came from
 
 
 class RunManager:
@@ -111,7 +112,13 @@ class RunManager:
 
     # ---- starting runs -----------------------------------------------------
     async def send(
-        self, thread_id: str, text: str, *, source: str = "owner", task_id: str | None = None
+        self,
+        thread_id: str,
+        text: str,
+        *,
+        source: str = "owner",
+        task_id: str | None = None,
+        call: dict[str, str] | None = None,
     ) -> ActiveRun:
         if self.store.pending_approvals(thread_id):
             raise Conflict("Decide the pending approval in this conversation first.")
@@ -119,20 +126,29 @@ class RunManager:
         if source == "owner" and thread["title"] in ("New conversation", ""):
             self.store.touch_thread(thread_id, text.strip().splitlines()[0][:80])
         message = HumanMessage(text, additional_kwargs={"dotsfam_source": source})
-        return self._start(thread_id, {"messages": [message]}, source, task_id)
+        return self._start(thread_id, {"messages": [message]}, source, task_id, call)
 
     async def resume(
         self, thread_id: str, decisions: dict[str, Any], *, source: str = "approval"
     ) -> ActiveRun:
         return self._start(thread_id, Command(resume=decisions), source, None)
 
-    def _start(self, thread_id: str, payload: Any, source: str, task_id: str | None) -> ActiveRun:
+    def _start(
+        self,
+        thread_id: str,
+        payload: Any,
+        source: str,
+        task_id: str | None,
+        call: dict[str, str] | None = None,
+    ) -> ActiveRun:
         if self.store.flags()["paused"]:
             raise Stopped("All Dots are paused.")
         if thread_id in self._active:
             raise Busy("This Dot is still working in this conversation.")
         run = self.store.create_run(thread_id, source, task_id)
-        active = ActiveRun(run["id"], thread_id, source, asyncio.get_running_loop().create_future())
+        active = ActiveRun(
+            run["id"], thread_id, source, asyncio.get_running_loop().create_future(), call=call
+        )
         self._active[thread_id] = active
         active.task = asyncio.create_task(self._execute(active, payload), name=f"run:{run['id']}")
         return active
@@ -161,6 +177,7 @@ class RunManager:
             cancelled=lambda: active.cancelled,
             extra=self.extra,
             source=active.source,
+            call=active.call,
         )
 
     async def _execute(self, active: ActiveRun, payload: Any) -> None:

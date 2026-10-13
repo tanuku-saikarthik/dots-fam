@@ -1,12 +1,12 @@
-"""Ring the owner's phone when a Dot needs them, for free.
+"""Ring the owner's phone when a Dot needs them.
 
-Two channels, both optional and both free:
+With Twilio set up (phone.py), the Dot places a real phone call first. The free channels are
+the fallback when that call can't be placed or isn't answered, and the only channels without it:
 - Web push to the installed Dots Fam app (PWA). Keys are generated on first start.
 - ntfy (ntfy.sh or self-hosted): an alarm-style alert in the ntfy phone app.
 
 Either way the alert says "Vance is calling", and tapping Answer opens an incoming-call
 screen that starts the live voice call, where the Dot reads out what needs approval.
-No phone number, SIM or telephony provider involved.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx
 
+from .phone import PhoneError
 from .runs import RunOutcome
 from .voice import describe_approval
 
@@ -71,8 +72,16 @@ class Notifier:
         assert self._public_key
         return self._public_key
 
+    def _phone(self) -> Any:
+        phone = self.runtime.phone
+        return phone if phone is not None and phone.problem() is None else None
+
+    def can_ring(self) -> bool:
+        return bool(self._phone() or self.store.push_subscriptions() or self.settings.ntfy_topic)
+
     def status(self) -> dict[str, Any]:
         return {
+            "phone": self.runtime.phone.status() if self.runtime.phone is not None else None,
             "push_devices": len(self.store.push_subscriptions()),
             "ntfy": bool(self.settings.ntfy_topic),
             "ntfy_topic": self.settings.ntfy_topic,
@@ -87,7 +96,33 @@ class Notifier:
         return f"{self.settings.public_url.rstrip('/')}{path}" if self.settings.public_url else path
 
     async def ring(self, dot: dict[str, Any], thread_id: str, reason: str) -> dict[str, int]:
-        """Alert every registered phone: '<Dot> is calling', with the reason underneath."""
+        """Call the owner's phone over Twilio; if that can't happen, alert every device."""
+        results = {"phone": 0, "push": 0, "ntfy": 0}
+        phone = self._phone()
+        if phone is not None:
+            try:
+                await phone.place_call(dot, thread_id, reason)
+                results["phone"] = 1
+            except PhoneError as error:
+                log.warning("Phone call failed, ringing devices instead: %s", error)
+                self.store.add_event(thread_id, "call", f"Phone call failed: {str(error)[:160]}")
+        if not results["phone"]:
+            results.update(await self.alert(dot, thread_id, reason))
+        title = f"{dot['name']} is calling"
+        self.sent.append({"at": int(time.time() * 1000), "title": title, "body": reason, **results})
+        self.sent = self.sent[-20:]
+        self.store.add_event(thread_id, "call", f"Rang you: {reason[:160]}")
+        return results
+
+    async def missed_call(
+        self, dot: dict[str, Any], thread_id: str, reason: str, status: str
+    ) -> dict[str, int]:
+        """Nobody picked up the phone call (busy, no answer, failed), so ring the devices."""
+        self.store.add_event(thread_id, "call", f"Phone call not answered ({status})")
+        return await self.alert(dot, thread_id, reason)
+
+    async def alert(self, dot: dict[str, Any], thread_id: str, reason: str) -> dict[str, int]:
+        """Alert every registered device: '<Dot> is calling', with the reason underneath."""
         title = f"{dot['name']} is calling"
         link = self.call_link(dot["id"], thread_id)
         payload = {
@@ -96,16 +131,12 @@ class Notifier:
             "url": f"/#/call/{dot['id']}/{thread_id}",
             "tag": thread_id,
         }
-        results = {"push": 0, "ntfy": 0}
-        results["push"] = await self._web_push(payload)
+        results = {"push": await self._web_push(payload), "ntfy": 0}
         if self.settings.ntfy_topic:
             # Anyone who guesses a topic on public ntfy.sh can read it, so details stay off it.
             public = not self.settings.ntfy_token and "://ntfy.sh" in self.settings.ntfy_server
             body = "Needs your OK. Answer to hear what's waiting." if public else reason
             results["ntfy"] = await self._ntfy(title, body, link)
-        self.sent.append({"at": int(time.time() * 1000), "title": title, "body": reason, **results})
-        self.sent = self.sent[-20:]
-        self.store.add_event(thread_id, "call", f"Rang you: {reason[:160]}")
         return results
 
     async def _web_push(self, payload: dict[str, Any]) -> int:
@@ -183,7 +214,7 @@ class Notifier:
     async def on_run_finished(self, outcome: RunOutcome) -> None:
         if outcome.status != "waiting_approval":
             return
-        if not self.store.push_subscriptions() and not self.settings.ntfy_topic:
+        if not self.can_ring():
             return
         try:
             root_thread = self.runtime.root_thread(outcome.thread_id)
